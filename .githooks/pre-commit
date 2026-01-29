@@ -1,0 +1,17 @@
+#!/bin/sh
+# Remove .DS_Store from index and working tree so they never get committed.
+set -e
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+
+# Unstage any staged .DS_Store
+git diff --cached --name-only --diff-filter=ACMR | while read f; do
+  case "$f" in */.DS_Store|.DS_Store) git rm --cached --ignore-unmatch "$f" 2>/dev/null ;; esac
+done
+
+# Delete .DS_Store from working tree (skip .git and node_modules)
+find . -name .DS_Store -not -path './.git/*' -not -path './node_modules/*' 2>/dev/null | while read f; do
+  git rm --cached --ignore-unmatch "$f" 2>/dev/null || true
+  rm -f "$f"
+done
+
+exit 0
