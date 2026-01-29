@@ -1,98 +1,96 @@
-This strategy shifts the battleground. You aren't competing on "features"; you are competing on **data sovereignty** and **deployment ease**.
+# ActionChat
 
-If "Crow" is the Apple walled garden, you are building Android.
+**The Anti-UI for Internal Operations.**
 
-Here is the architectural blueprint (Context File) to align your other AI with this new mission. Save this as `PROJECT_SPEC.md` and feed it to your coding assistants.
+Turn any `openapi.json` into a secure, authenticated command center in 30 seconds. Stop building admin panels — just build the API.
 
----
+```
+User: "Refund the last order for bob@example.com"
+ActionChat: "Found Order #992. Refund $50? [Y/n]"
+User: "Y"
+✓ POST /refunds/992 — 200 OK
+```
 
-# PROJECT_SPEC.md
+## Why ActionChat?
 
-## 1. The Mission: Sovereignty & "Zero-UI"
+- **Zero UI work** — If it's in the OpenAPI spec, it's in the chat. No forms to build.
+- **Hallucination-proof** — Validates all parameters against your API schema *before* execution.
+- **Human-in-the-loop** — Destructive actions (POST/PUT/DELETE) require explicit confirmation.
+- **Data sovereignty** — Self-hosted. No customer data leaves your infrastructure.
+- **Team-safe** — Granular permissions. Give support read-only access while you keep admin.
 
-**Project Name:** copilot.sh (Working Title)
-**License:** MIT
-**Core Philosophy:**
+## Quick Start
 
-* **Anti-SaaS:** We do not want another subscription. We want a container we own.
-* **Anti-UI:** We do not want to build Admin Panels. We want to export an API and have the UI generate itself.
-* **Privacy-First:** No customer data leaves the user's infrastructure.
-* **Deployment:** "One-Click" stack (Supabase + Vercel/Docker) that any developer can spin up in 5 minutes.
+```bash
+docker run -v ./openapi.json:/app/spec.json -p 8000:8000 actionchat/core
+```
 
-## 2. Core Architecture
+That's it. Your APIs are now chat-accessible.
 
-The system functions as a **Translation Layer** between natural language and structured API calls.
+## How It Works
 
-### The Stack
+ActionChat is a **translation proxy** between natural language and your existing APIs:
 
-* **Frontend/Widget:** React (embeddable script tag).
-* **Backend:** Next.js / Edge Functions (Vercel).
-* **Database & Auth:** Supabase (PostgreSQL + RLS).
-* **Model Layer:** Agnostic (User provides API Key: OpenAI, Anthropic, or Local/Ollama).
+1. User types intent → RAG search over OpenAPI spec
+2. LLM maps intent to API call with validated parameters
+3. Destructive actions require `[Y/n]` confirmation
+4. Execute HTTP call → return natural-language summary
 
-## 3. Data Model & Primitives
+**Auth pass-through:** ActionChat forwards the user's `Authorization` header. If they can't do it in the app, they can't do it via ActionChat.
 
-### A. Folders (The Capability Layer)
+## Stack
 
-*Concept: A "Folder" is a secured container for a specific set of tools/APIs.*
+- **App:** Next.js + React + Tailwind (Shadcn/UI)
+- **Backend:** Supabase (PostgreSQL + Auth + RLS)
+- **LLM:** Agnostic — OpenAI (default), Anthropic, or Ollama (local)
+- **Deploy:** Docker Compose
 
-* **Input:** Users ingest an `openapi.json` spec OR manually define cURL requests.
-* **Function:** Groups related actions (e.g., "Stripe Billing," "AWS Prod," "User Admin").
-* **Granularity:** Permissions are set at the Folder level, not the individual tool level.
+## Development
 
-### B. Agents (The Execution Layer)
+```bash
+# Install dependencies
+yarn install
 
-*Concept: An "Agent" is the entity that interacts with the end-user.*
+# Copy environment template
+cp env.example .env
+# Edit .env with your Supabase credentials
 
-* **Configuration:**
-* **Identity:** Name, System Prompt, Tone.
-* **Brain:** Selectable Model (e.g., GPT-4o for complex tasks, Llama-3-70b for privacy).
-* **Access:** Assigned specific **Folders** (e.g., "Support Agent" gets read-only User access; "Admin Agent" gets Billing write access).
+# Run development server
+yarn dev
+```
 
+### Required Environment
 
-* **State:** Can be toggled Active/Inactive.
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx
+SUPABASE_SERVICE_ROLE=xxx
+```
 
-### C. The Interface (The "Product")
+See `env.example` for the full configuration.
 
-1. **The Embeddable Widget:**
-* Authenticated via the host app's session (JWT pass-through).
-* User types intent -> Agent verifies permission -> Agent executes Tool -> Agent returns result.
+### Commands
 
+```bash
+yarn dev       # Dev server (port 3000)
+yarn build     # Production build
+yarn lint      # ESLint
+yarn test      # Jest with coverage
+```
 
-2. **The Admin Console:**
-* Upload/Manage OpenAPI specs (into Folders).
-* Create/Configure Agents.
-* **Audit Logs:** "Who did what?" (Essential for security). See every API call made by an agent on behalf of a user.
+## Core Concepts
 
+- **Scope** — A grouping of API capabilities from an `openapi.json` (e.g., "Stripe Production", "Internal Admin API")
+- **Agent** — A configured bot instance with system prompt, model, and permissions (read-only vs read-write)
+- **Tool** — A single API endpoint with `name`, `method`, `parameters`, and `risk_level` (Safe vs High)
 
+## Security
 
-## 4. Key Workflows
+- **No super-admin tokens** — ActionChat uses the user's own credentials via auth pass-through
+- **Schema validation** — Generated parameters are validated against JSON Schema; invented params are rejected
+- **Confirmation loop** — High-risk operations require explicit user confirmation
+- **Audit trail** — Every action is logged (who did what, when)
 
-### 1. Ingestion ("The Setup")
+## License
 
-* Admin uploads `swagger.json`.
-* System parses endpoints into "Tools."
-* Admin groups Tools into a "Folder" (e.g., "Reporting API").
-
-### 2. Execution ("The Magic")
-
-* User (in Host App) asks: "Pull the Q3 sales report."
-* Widget passes request + User Context to Backend.
-* Agent checks if it has access to the "Reporting API" Folder.
-* Agent selects the `GET /reports/sales` tool.
-* **Guardrail:** If the tool is `destructive` (POST/DELETE), Agent requests manual confirmation ("Y/n") from user.
-* Agent executes and renders JSON response as text/table.
-
-## 5. Security & Guardrails
-
-* **RLS (Row Level Security):** Strict separation of tenant data if multi-tenant, but primarily designed for single-tenant self-hosting.
-* **Human-in-the-Loop:** Configurable "Require Confirmation" threshold for sensitive Actions (DELETE/PUT).
-* **Credential Proxying:** The Agent uses the *Host Application's* auth headers whenever possible, ensuring it never exceeds the permissions of the actual human user.
-
----
-
-### Strategic Next Step
-
-To make this "real" for the other AI, you need to initialize the repository structure so it stops hallucinating abstractly and starts coding files.
-
-**Would you like me to generate the `docker-compose.yml` or the Supabase schema (`schema.sql`) to lock in the "Agents & Folders" structure immediately?**
+MIT

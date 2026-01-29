@@ -56,3 +56,6 @@ coverage/
 .claude
 
 .env
+.env.local 
+.env.dev 
+.env.prod 
