@@ -1,0 +1,720 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2025-01-31",
+  "integrations": [
+    {
+      "id": "00000000-0000-4000-a000-000000000001",
+      "slug": "stripe",
+      "name": "Stripe",
+      "description": "Payment processing platform for internet businesses",
+      "category": "payments",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Secret Key",
+        "credential_placeholder": "sk_live_..."
+      },
+      "logo_url": "/integrations/stripe.svg",
+      "docs_url": "https://stripe.com/docs/api",
+      "use_cases": [
+        "Refund a customer",
+        "Create a charge",
+        "Cancel subscription",
+        "List recent payments",
+        "Create invoice"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000002",
+      "slug": "twilio",
+      "name": "Twilio",
+      "description": "Cloud communications platform for SMS, voice, and video",
+      "category": "communication",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/json/twilio_api_v2010.json",
+      "auth_type": "basic",
+      "auth_config": {
+        "credential_fields": ["username", "password"],
+        "username_label": "Account SID",
+        "username_placeholder": "AC...",
+        "password_label": "Auth Token",
+        "password_placeholder": "Your auth token"
+      },
+      "logo_url": "/integrations/twilio.svg",
+      "docs_url": "https://www.twilio.com/docs/api",
+      "use_cases": [
+        "Send an SMS",
+        "Make a phone call",
+        "Check message status",
+        "List phone numbers",
+        "Send WhatsApp message"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000003",
+      "slug": "github",
+      "name": "GitHub",
+      "description": "Code hosting platform for version control and collaboration",
+      "category": "devops",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Personal Access Token",
+        "credential_placeholder": "ghp_..."
+      },
+      "logo_url": "/integrations/github.svg",
+      "docs_url": "https://docs.github.com/en/rest",
+      "use_cases": [
+        "Create an issue",
+        "Merge a pull request",
+        "Create a release",
+        "List repository commits",
+        "Add a collaborator"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000004",
+      "slug": "slack",
+      "name": "Slack",
+      "description": "Business communication platform for teams",
+      "category": "communication",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/web-api/slack_web_openapi_v2.json",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Bot Token",
+        "credential_placeholder": "xoxb-..."
+      },
+      "logo_url": "/integrations/slack.svg",
+      "docs_url": "https://api.slack.com/methods",
+      "use_cases": [
+        "Post a message",
+        "Create a channel",
+        "Invite user to channel",
+        "Upload a file",
+        "Set channel topic"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000005",
+      "slug": "sendgrid",
+      "name": "SendGrid",
+      "description": "Email delivery platform for transactional and marketing emails",
+      "category": "communication",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/twilio/sendgrid-oai/main/oai.json",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "API Key",
+        "credential_placeholder": "SG...."
+      },
+      "logo_url": "/integrations/sendgrid.svg",
+      "docs_url": "https://docs.sendgrid.com/api-reference",
+      "use_cases": [
+        "Send an email",
+        "Manage contacts",
+        "Check bounce list",
+        "Create email template",
+        "View email statistics"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000006",
+      "slug": "pagerduty",
+      "name": "PagerDuty",
+      "description": "Incident management platform for DevOps teams",
+      "category": "devops",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Token token=",
+        "credential_field": "token",
+        "credential_label": "API Key",
+        "credential_placeholder": "Your PagerDuty API key"
+      },
+      "logo_url": "/integrations/pagerduty.svg",
+      "docs_url": "https://developer.pagerduty.com/api-reference",
+      "use_cases": [
+        "Trigger an incident",
+        "Acknowledge an alert",
+        "Escalate to on-call",
+        "List active incidents",
+        "Resolve an incident"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000007",
+      "slug": "datadog",
+      "name": "Datadog",
+      "description": "Monitoring and analytics platform for cloud-scale applications",
+      "category": "devops",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/DataDog/datadog-api-client-python/master/.generator/schemas/v1/openapi.yaml",
+      "auth_type": "header",
+      "auth_config": {
+        "headers": {
+          "DD-API-KEY": "api_key",
+          "DD-APPLICATION-KEY": "app_key"
+        },
+        "credential_fields": ["api_key", "app_key"],
+        "api_key_label": "API Key",
+        "app_key_label": "Application Key"
+      },
+      "logo_url": "/integrations/datadog.svg",
+      "docs_url": "https://docs.datadoghq.com/api",
+      "use_cases": [
+        "Create a monitor",
+        "Mute an alert",
+        "Query metrics",
+        "List dashboards",
+        "Submit a log"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000008",
+      "slug": "linear",
+      "name": "Linear",
+      "description": "Issue tracking and project management for software teams",
+      "category": "project_management",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://api.linear.app",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "API Key",
+        "credential_placeholder": "lin_api_..."
+      },
+      "logo_url": "/integrations/linear.svg",
+      "docs_url": "https://developers.linear.app/docs/graphql/working-with-the-graphql-api",
+      "use_cases": [
+        "Create an issue",
+        "Update ticket status",
+        "Assign to team member",
+        "Add a comment",
+        "Create a project"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000009",
+      "slug": "jira",
+      "name": "Jira",
+      "description": "Issue and project tracking for agile teams",
+      "category": "project_management",
+      "type": "openapi",
+      "spec_url": "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
+      "auth_type": "basic",
+      "auth_config": {
+        "credential_fields": ["username", "password"],
+        "username_label": "Email",
+        "username_placeholder": "your@email.com",
+        "password_label": "API Token",
+        "password_placeholder": "Your Jira API token"
+      },
+      "logo_url": "/integrations/jira.svg",
+      "docs_url": "https://developer.atlassian.com/cloud/jira/platform/rest/v3",
+      "use_cases": [
+        "Create a ticket",
+        "Transition issue status",
+        "Add a comment",
+        "Assign to user",
+        "Update priority"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-00000000000a",
+      "slug": "cloudflare",
+      "name": "Cloudflare",
+      "description": "Web performance and security services",
+      "category": "infrastructure",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "API Token",
+        "credential_placeholder": "Your Cloudflare API token"
+      },
+      "logo_url": "/integrations/cloudflare.svg",
+      "docs_url": "https://developers.cloudflare.com/api",
+      "use_cases": [
+        "Purge cache",
+        "Update DNS record",
+        "Create a Worker",
+        "List zones",
+        "Enable WAF rule"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-00000000000b",
+      "slug": "hubspot",
+      "name": "HubSpot",
+      "description": "CRM and marketing automation platform",
+      "category": "crm",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://api.hubapi.com",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Private App Token",
+        "credential_placeholder": "pat-..."
+      },
+      "logo_url": "/integrations/hubspot.svg",
+      "docs_url": "https://developers.hubspot.com/docs/api/overview",
+      "use_cases": [
+        "Create a contact",
+        "Update a deal",
+        "Send an email",
+        "Log an activity",
+        "Create a company"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-00000000000c",
+      "slug": "intercom",
+      "name": "Intercom",
+      "description": "Customer messaging platform for sales and support",
+      "category": "support",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.11/api.intercom.io.yaml",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Access Token",
+        "credential_placeholder": "dG9rOi..."
+      },
+      "logo_url": "/integrations/intercom.svg",
+      "docs_url": "https://developers.intercom.com/docs/references/rest-api/api.intercom.io/",
+      "use_cases": [
+        "Create a conversation",
+        "Send a message",
+        "Update user attributes",
+        "Add a tag",
+        "Close conversation"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-00000000000d",
+      "slug": "zendesk",
+      "name": "Zendesk",
+      "description": "Customer service and engagement platform",
+      "category": "support",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://{subdomain}.zendesk.com/api/v2",
+      "auth_type": "basic",
+      "auth_config": {
+        "credential_fields": ["username", "password"],
+        "username_label": "Email/token",
+        "username_placeholder": "email@domain.com/token",
+        "password_label": "API Token",
+        "password_placeholder": "Your Zendesk API token"
+      },
+      "logo_url": "/integrations/zendesk.svg",
+      "docs_url": "https://developer.zendesk.com/api-reference",
+      "use_cases": [
+        "Create a ticket",
+        "Update ticket status",
+        "Add internal note",
+        "Assign to agent",
+        "Close ticket"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-00000000000e",
+      "slug": "freshdesk",
+      "name": "Freshdesk",
+      "description": "Customer support software for growing businesses",
+      "category": "support",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/ccl-consulting/freshdesk-openapi/master/swagger.json",
+      "auth_type": "basic",
+      "auth_config": {
+        "credential_fields": ["username", "password"],
+        "username_label": "API Key",
+        "username_placeholder": "Your API key",
+        "password_label": "Password",
+        "password_placeholder": "x (use 'x' as password)"
+      },
+      "logo_url": "/integrations/freshdesk.svg",
+      "docs_url": "https://developers.freshdesk.com/api/",
+      "use_cases": [
+        "Create a ticket",
+        "Reply to ticket",
+        "Resolve ticket",
+        "Add note",
+        "Assign agent"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-00000000000f",
+      "slug": "notion",
+      "name": "Notion",
+      "description": "All-in-one workspace for notes, docs, and databases",
+      "category": "productivity",
+      "type": "mcp",
+      "mcp_package": "@notionhq/notion-mcp-server",
+      "auth_type": "api_key",
+      "auth_config": {
+        "env_var": "NOTION_API_KEY",
+        "credential_field": "api_key",
+        "credential_label": "Integration Token",
+        "credential_placeholder": "secret_..."
+      },
+      "logo_url": "/integrations/notion.svg",
+      "docs_url": "https://developers.notion.com/docs",
+      "use_cases": [
+        "Create a page",
+        "Update a database",
+        "Query records",
+        "Add a comment",
+        "Search content"
+      ],
+      "is_featured": true
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000010",
+      "slug": "airtable",
+      "name": "Airtable",
+      "description": "Spreadsheet-database hybrid for flexible data management",
+      "category": "productivity",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://api.airtable.com/v0",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Personal Access Token",
+        "credential_placeholder": "pat..."
+      },
+      "logo_url": "/integrations/airtable.svg",
+      "docs_url": "https://airtable.com/developers/web/api",
+      "use_cases": [
+        "Create a record",
+        "Update record",
+        "Query a base",
+        "Delete record",
+        "List tables"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000011",
+      "slug": "supabase",
+      "name": "Supabase",
+      "description": "Open source Firebase alternative with Postgres database",
+      "category": "database",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://{project_ref}.supabase.co",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "apikey",
+        "credential_field": "api_key",
+        "credential_label": "Service Role Key",
+        "credential_placeholder": "eyJ..."
+      },
+      "logo_url": "/integrations/supabase.svg",
+      "docs_url": "https://supabase.com/docs/reference",
+      "use_cases": [
+        "Insert row",
+        "Query data",
+        "Update record",
+        "Call RPC function",
+        "Manage auth users"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000012",
+      "slug": "postgres",
+      "name": "PostgreSQL",
+      "description": "Powerful open source relational database",
+      "category": "database",
+      "type": "mcp",
+      "mcp_package": "@modelcontextprotocol/server-postgres",
+      "auth_type": "none",
+      "auth_config": {
+        "env_var": "POSTGRES_URL",
+        "credential_field": "connection_string",
+        "credential_label": "Connection String",
+        "credential_placeholder": "postgresql://user:pass@host:5432/db"
+      },
+      "logo_url": "/integrations/postgres.svg",
+      "docs_url": "https://www.postgresql.org/docs/",
+      "use_cases": [
+        "Query tables",
+        "Inspect schema",
+        "Run SQL",
+        "List databases",
+        "Check indexes"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000013",
+      "slug": "mongodb",
+      "name": "MongoDB",
+      "description": "Document database for modern applications",
+      "category": "database",
+      "type": "mcp",
+      "mcp_package": "@modelcontextprotocol/server-mongodb",
+      "auth_type": "none",
+      "auth_config": {
+        "env_var": "MONGODB_URI",
+        "credential_field": "connection_string",
+        "credential_label": "Connection String",
+        "credential_placeholder": "mongodb+srv://user:pass@cluster.mongodb.net/db"
+      },
+      "logo_url": "/integrations/mongodb.svg",
+      "docs_url": "https://www.mongodb.com/docs/",
+      "use_cases": [
+        "Query collection",
+        "Insert document",
+        "Update documents",
+        "Aggregate data",
+        "List collections"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000014",
+      "slug": "okta",
+      "name": "Okta",
+      "description": "Identity and access management platform",
+      "category": "auth",
+      "type": "openapi",
+      "spec_url": "https://raw.githubusercontent.com/okta/okta-management-openapi-spec/master/dist/spec.yaml",
+      "auth_type": "api_key",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "SSWS",
+        "credential_field": "api_key",
+        "credential_label": "API Token",
+        "credential_placeholder": "Your Okta API token"
+      },
+      "logo_url": "/integrations/okta.svg",
+      "docs_url": "https://developer.okta.com/docs/reference/api/",
+      "use_cases": [
+        "Create a user",
+        "Reset password",
+        "Assign app",
+        "Deactivate user",
+        "Reset MFA"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000015",
+      "slug": "auth0",
+      "name": "Auth0",
+      "description": "Authentication and authorization platform",
+      "category": "auth",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://{tenant}.auth0.com/api/v2",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "Management API Token",
+        "credential_placeholder": "eyJ..."
+      },
+      "logo_url": "/integrations/auth0.svg",
+      "docs_url": "https://auth0.com/docs/api/management/v2",
+      "use_cases": [
+        "Create a user",
+        "Update user roles",
+        "Reset MFA",
+        "Block user",
+        "Delete user"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000016",
+      "slug": "filesystem",
+      "name": "Filesystem",
+      "description": "Local file system access for reading and writing files",
+      "category": "system",
+      "type": "mcp",
+      "mcp_package": "@modelcontextprotocol/server-filesystem",
+      "auth_type": "none",
+      "auth_config": {
+        "env_var": "ALLOWED_DIRECTORIES",
+        "credential_field": "allowed_directories",
+        "credential_label": "Allowed Directories",
+        "credential_placeholder": "/path/to/dir1,/path/to/dir2"
+      },
+      "logo_url": "/integrations/filesystem.svg",
+      "docs_url": "https://modelcontextprotocol.io/docs/servers/filesystem",
+      "use_cases": [
+        "List files",
+        "Read file contents",
+        "Write to file",
+        "Search files",
+        "Move files"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000017",
+      "slug": "shopify",
+      "name": "Shopify",
+      "description": "E-commerce platform for online stores",
+      "category": "ecommerce",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://{store}.myshopify.com/admin/api/2024-01",
+      "auth_type": "header",
+      "auth_config": {
+        "header": "X-Shopify-Access-Token",
+        "credential_field": "access_token",
+        "credential_label": "Admin API Token",
+        "credential_placeholder": "shpat_..."
+      },
+      "logo_url": "/integrations/shopify.svg",
+      "docs_url": "https://shopify.dev/docs/api/admin-rest",
+      "use_cases": [
+        "List orders",
+        "Create refund",
+        "Update inventory",
+        "Cancel order",
+        "Add product"
+      ],
+      "is_featured": false
+    },
+    {
+      "id": "00000000-0000-4000-a000-000000000018",
+      "slug": "vercel",
+      "name": "Vercel",
+      "description": "Frontend cloud platform for deployments",
+      "category": "devops",
+      "type": "openapi",
+      "spec_url": null,
+      "base_url": "https://api.vercel.com",
+      "auth_type": "bearer",
+      "auth_config": {
+        "header": "Authorization",
+        "prefix": "Bearer",
+        "credential_field": "token",
+        "credential_label": "API Token",
+        "credential_placeholder": "Your Vercel token"
+      },
+      "logo_url": "/integrations/vercel.svg",
+      "docs_url": "https://vercel.com/docs/rest-api",
+      "use_cases": [
+        "List deployments",
+        "Trigger redeploy",
+        "Check deployment status",
+        "Update env vars",
+        "Rollback deployment"
+      ],
+      "is_featured": false
+    }
+  ],
+  "categories": [
+    {
+      "id": "payments",
+      "name": "Payments & Billing",
+      "description": "Payment processing and subscription management"
+    },
+    {
+      "id": "communication",
+      "name": "Communication",
+      "description": "SMS, email, and messaging platforms"
+    },
+    {
+      "id": "devops",
+      "name": "DevOps & Monitoring",
+      "description": "Infrastructure, CI/CD, and incident management"
+    },
+    {
+      "id": "project_management",
+      "name": "Project Management",
+      "description": "Issue tracking and team collaboration"
+    },
+    {
+      "id": "crm",
+      "name": "CRM & Sales",
+      "description": "Customer relationship management"
+    },
+    {
+      "id": "support",
+      "name": "Customer Support",
+      "description": "Help desk and ticketing systems"
+    },
+    {
+      "id": "productivity",
+      "name": "Productivity",
+      "description": "Note-taking and workflow tools"
+    },
+    {
+      "id": "database",
+      "name": "Databases",
+      "description": "Database access and management"
+    },
+    {
+      "id": "auth",
+      "name": "Auth & Identity",
+      "description": "Authentication and user management"
+    },
+    {
+      "id": "infrastructure",
+      "name": "Infrastructure",
+      "description": "Cloud services and CDN"
+    },
+    {
+      "id": "ecommerce",
+      "name": "E-Commerce",
+      "description": "Online stores and marketplaces"
+    },
+    {
+      "id": "system",
+      "name": "System",
+      "description": "Local system access and utilities"
+    }
+  ]
+}
