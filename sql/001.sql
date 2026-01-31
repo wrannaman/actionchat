@@ -65,21 +65,66 @@ CREATE INDEX idx_invites_token ON org_invites(token);
 COMMENT ON TABLE org_invites IS 'Invite links with optional expiry and max uses.';
 
 -- ============================================================================
--- 4. API_SOURCES — "Scopes": OpenAPI specs or manual endpoint collections
+-- 4. SOURCE_TEMPLATES — pre-configured integrations catalog
+-- ============================================================================
+
+CREATE TABLE source_templates (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+  -- Template metadata
+  slug TEXT UNIQUE NOT NULL,              -- 'stripe', 'twilio', etc.
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT,                          -- 'payments', 'communication', 'devops'
+  logo_url TEXT,
+  docs_url TEXT,
+
+  -- Template content
+  source_type TEXT NOT NULL CHECK (source_type IN ('openapi', 'mcp')),
+  spec_url TEXT,                          -- for OpenAPI: URL to fetch spec
+  spec_content JSONB,                     -- cached spec
+  mcp_package TEXT,                       -- for MCP: npm package or path
+
+  -- Auth configuration
+  auth_type TEXT DEFAULT 'api_key',
+  auth_config JSONB DEFAULT '{}',         -- { header, prefix, env_var, etc. }
+
+  -- Use cases (for display)
+  use_cases TEXT[] DEFAULT '{}',
+
+  -- Metadata
+  is_featured BOOLEAN DEFAULT false,
+  install_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE TRIGGER trg_source_templates BEFORE UPDATE ON source_templates FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE INDEX idx_templates_category ON source_templates(category);
+CREATE INDEX idx_templates_featured ON source_templates(is_featured) WHERE is_featured = true;
+COMMENT ON TABLE source_templates IS 'Pre-configured integration templates for one-click setup.';
+
+-- ============================================================================
+-- 5. API_SOURCES — "Scopes": OpenAPI specs, MCP servers, or manual endpoint collections
 -- ============================================================================
 
 CREATE TABLE api_sources (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   org_id UUID NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  template_id UUID REFERENCES source_templates(id),  -- if created from a template
   name TEXT NOT NULL,
   description TEXT,
-  source_type TEXT NOT NULL DEFAULT 'openapi' CHECK (source_type IN ('openapi', 'manual')),
+  source_type TEXT NOT NULL DEFAULT 'openapi' CHECK (source_type IN ('openapi', 'manual', 'mcp')),
   spec_content JSONB,                     -- raw OpenAPI spec JSON
   spec_url TEXT,                          -- remote URL to fetch OpenAPI spec from
   spec_hash TEXT,                         -- SHA-256 of spec_content for change detection
   base_url TEXT,                          -- e.g. "https://api.stripe.com/v1"
+  -- MCP-specific fields
+  mcp_server_uri TEXT,                    -- MCP server command or URL
+  mcp_transport TEXT DEFAULT 'stdio',     -- 'stdio' or 'http'
+  mcp_env JSONB DEFAULT '{}',             -- environment variables for MCP server
+  -- Auth configuration
   auth_type TEXT NOT NULL DEFAULT 'passthrough'
-    CHECK (auth_type IN ('bearer', 'api_key', 'basic', 'passthrough', 'none')),
+    CHECK (auth_type IN ('bearer', 'api_key', 'basic', 'passthrough', 'none', 'header')),
   auth_config JSONB NOT NULL DEFAULT '{}', -- target API credentials (stripped for non-admins in API layer)
   is_active BOOLEAN NOT NULL DEFAULT true,
   last_synced_at TIMESTAMPTZ,             -- when spec was last re-parsed
@@ -118,10 +163,13 @@ CREATE TABLE tools (
   operation_id TEXT,                      -- OpenAPI operationId (stable key for re-sync)
   name TEXT NOT NULL,                     -- human-readable, e.g. "Refund Payment"
   description TEXT,
-  method TEXT NOT NULL CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS')),
-  path TEXT NOT NULL,                     -- e.g. "/v1/refunds"
+  method TEXT NOT NULL CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'MCP')),
+  path TEXT NOT NULL,                     -- e.g. "/v1/refunds" (for MCP: tool name)
   parameters JSONB NOT NULL DEFAULT '{}', -- JSON Schema for query/path params
   request_body JSONB,                     -- JSON Schema for request body
+  -- MCP-specific fields
+  mcp_tool_name TEXT,                     -- MCP tool identifier
+  -- Risk and confirmation
   risk_level TEXT NOT NULL DEFAULT 'safe'
     CHECK (risk_level IN ('safe', 'moderate', 'dangerous')),
   requires_confirmation BOOLEAN NOT NULL DEFAULT false,
@@ -366,6 +414,7 @@ COMMENT ON TABLE api_keys IS 'Programmatic access tokens. Scoped to specific age
 ALTER TABLE org                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_members          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_invites          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE source_templates     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_sources          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_api_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tools                ENABLE ROW LEVEL SECURITY;
@@ -474,6 +523,10 @@ CREATE POLICY om_delete ON org_members FOR DELETE USING (
 CREATE POLICY invites_admin ON org_invites FOR ALL USING (
   org_id = ANY(get_user_admin_org_ids()));
 CREATE POLICY invites_public ON org_invites FOR SELECT USING (is_active = true);
+
+-- source_templates: public read (catalog), admin-only write (seeding)
+CREATE POLICY templates_read ON source_templates FOR SELECT USING (true);
+CREATE POLICY templates_write ON source_templates FOR ALL USING (false); -- seeded via migrations only
 
 -- api_sources: members read, admin writes
 CREATE POLICY sources_read ON api_sources FOR SELECT USING (
@@ -667,6 +720,8 @@ GRANT EXECUTE ON FUNCTION get_user_accessible_agents()       TO authenticated;
 GRANT EXECUTE ON FUNCTION get_chat_action_summary(UUID)      TO authenticated;
 
 GRANT ALL ON org, org_members, org_invites                   TO authenticated;
+GRANT SELECT ON source_templates                             TO authenticated;
+GRANT SELECT ON source_templates                             TO anon;
 GRANT ALL ON api_sources, tools, agents, agent_sources       TO authenticated;
 GRANT ALL ON member_agent_access, chats, messages            TO authenticated;
 GRANT ALL ON action_log, embed_configs, api_keys             TO authenticated;

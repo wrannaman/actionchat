@@ -1,3 +1,6 @@
+import * as mcpManager from './mcp-manager.js';
+import { parseToolResult as parseMcpResult } from './mcp-parser.js';
+
 const MAX_RESPONSE_SIZE = 10 * 1024; // 10KB limit for LLM context
 
 /**
@@ -135,7 +138,57 @@ export function buildAuthHeaders(source, userCredentials) {
 }
 
 /**
- * Execute an API tool call against the target service.
+ * Execute an MCP tool call.
+ *
+ * @param {object} params
+ * @param {object} params.tool - Tool row with mcp_tool_name
+ * @param {object} params.source - Source with mcp_server_uri, mcp_transport, mcp_env
+ * @param {object} params.args - LLM-generated arguments
+ * @param {object|null} params.userCredentials - User's credentials (for env var injection)
+ * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
+ */
+async function executeMcpTool({ tool, source, args, userCredentials }) {
+  const startTime = Date.now();
+  const toolName = tool.mcp_tool_name || tool.path;
+
+  // Build MCP config, injecting user credentials into env if provided
+  const mcpConfig = {
+    mcp_server_uri: source.mcp_server_uri,
+    mcp_transport: source.mcp_transport || 'stdio',
+    mcp_env: {
+      ...(source.mcp_env || {}),
+      // Inject credentials as environment variables if provided
+      ...(userCredentials?.env_vars || {}),
+    },
+  };
+
+  try {
+    const result = await mcpManager.callTool(source.id, mcpConfig, toolName, args);
+    const duration_ms = Date.now() - startTime;
+
+    // Parse the MCP result
+    const parsed = parseMcpResult(result);
+
+    return {
+      url: `mcp://${source.name}/${toolName}`,
+      response_status: parsed.isError ? 500 : 200,
+      response_body: parsed.data || { text: parsed.text },
+      duration_ms,
+      error_message: parsed.isError ? parsed.text : null,
+    };
+  } catch (error) {
+    return {
+      url: `mcp://${source.name}/${toolName}`,
+      response_status: 0,
+      response_body: null,
+      duration_ms: Date.now() - startTime,
+      error_message: error.message,
+    };
+  }
+}
+
+/**
+ * Execute an HTTP API tool call against the target service.
  *
  * @param {object} params
  * @param {object} params.tool - Tool row from get_agent_tools
@@ -145,7 +198,7 @@ export function buildAuthHeaders(source, userCredentials) {
  * @param {string|null} params.userId - User ID for per-user isolation (mock APIs)
  * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
  */
-export async function executeTool({ tool, source, args, userCredentials, userId }) {
+async function executeHttpTool({ tool, source, args, userCredentials, userId }) {
   const startTime = Date.now();
   const url = buildUrl(source.base_url, tool.path, args, tool.parameters);
 
@@ -199,6 +252,28 @@ export async function executeTool({ tool, source, args, userCredentials, userId 
       error_message: error.message,
     };
   }
+}
+
+/**
+ * Execute an API tool call against the target service.
+ * Routes to HTTP or MCP execution based on source type.
+ *
+ * @param {object} params
+ * @param {object} params.tool - Tool row from get_agent_tools
+ * @param {object} params.source - Source with auth_type, base_url, name, source_type
+ * @param {object} params.args - LLM-generated arguments
+ * @param {object|null} params.userCredentials - User's credentials for this source
+ * @param {string|null} params.userId - User ID for per-user isolation (mock APIs)
+ * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
+ */
+export async function executeTool({ tool, source, args, userCredentials, userId }) {
+  // Route based on source type
+  if (source.source_type === 'mcp' || tool.method === 'MCP') {
+    return executeMcpTool({ tool, source, args, userCredentials });
+  }
+
+  // Default: HTTP execution
+  return executeHttpTool({ tool, source, args, userCredentials, userId });
 }
 
 /**
