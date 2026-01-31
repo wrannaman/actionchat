@@ -66,15 +66,6 @@ function ProblemItem({ children }) {
   );
 }
 
-function FeatureItem({ children }) {
-  return (
-    <div className="flex items-start gap-3">
-      <Check className="w-5 h-5 text-green-400 shrink-0 mt-0.5" />
-      <span className="text-white/70">{children}</span>
-    </div>
-  );
-}
-
 function HomeContent() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white overflow-hidden relative">
@@ -116,7 +107,7 @@ function HomeContent() {
 
             <p className="text-xl text-white/60 mb-4 max-w-2xl mx-auto">
               <strong className="text-white">Stop building internal tools.</strong> ActionChat turns your{" "}
-              <code className="px-2 py-1 bg-white/5 rounded text-cyan-400 font-mono">openapi.json</code> into 
+              <code className="px-2 py-1 bg-white/5 rounded text-cyan-400 font-mono">openapi.json</code> into
               a secure, authenticated Ops Dashboard in 30 seconds.
             </p>
 
@@ -130,7 +121,7 @@ function HomeContent() {
                   size="lg"
                   className="text-lg px-8 py-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white font-bold shadow-xl shadow-blue-500/20"
                 >
-                  Get the Docker Image
+                  Get Started
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
@@ -154,7 +145,7 @@ function HomeContent() {
           <div className="max-w-3xl mx-auto">
             <h2 className="text-2xl md:text-3xl font-black mb-8">The Problem</h2>
             <p className="text-lg text-white/60 mb-8">You built the API. Now you have to build the UI.</p>
-            
+
             <div className="space-y-4">
               <ProblemItem>
                 <strong className="text-white">The Frontend Tax:</strong> You spend 3 days fighting with React, state management, and CSS just to make a &quot;Refund Button.&quot;
@@ -185,17 +176,17 @@ function HomeContent() {
             </div>
 
             <p className="text-white/60 mb-6">That&apos;s it. Your APIs are now chat-accessible.</p>
-            
+
             <div className="p-4 bg-white/[0.02] border border-white/10 rounded-xl mb-6">
               <p className="text-white/80 text-sm">
-                <strong className="text-white">This isn&apos;t a chatbot.</strong> Chatbots link you to KB articles. 
-                ActionChat <em>executes the refund</em>, <em>rotates the API key</em>, <em>suspends the account</em>. 
+                <strong className="text-white">This isn&apos;t a chatbot.</strong> Chatbots link you to KB articles.
+                ActionChat <em>executes the refund</em>, <em>rotates the API key</em>, <em>suspends the account</em>.
                 It does the thing.
               </p>
             </div>
 
             <p className="text-white/60">
-              Works with your own internal apps <em>or</em> external APIs — Stripe, Twilio, your own backend. 
+              Works with your own internal apps <em>or</em> external APIs — Stripe, Twilio, your own backend.
               If it has an OpenAPI spec, you can chat with it.
             </p>
           </div>
@@ -205,7 +196,7 @@ function HomeContent() {
         <section className="container mx-auto px-6 py-20 border-t border-white/5">
           <div className="max-w-3xl mx-auto">
             <h2 className="text-2xl md:text-3xl font-black mb-8">Why Devs Love It</h2>
-            
+
             <div className="grid md:grid-cols-2 gap-6">
               <div className="p-6 bg-white/[0.02] border border-white/5 rounded-xl">
                 <div className="flex items-center gap-3 mb-3">
@@ -260,21 +251,21 @@ function HomeContent() {
               Don&apos;t build another form. Just build the API.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="https://github.com/actionchat/actionchat" target="_blank">
+              <Link href="/auth/login">
                 <Button
                   size="lg"
                   className="text-lg px-8 py-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white font-bold"
                 >
-                  Star on GitHub
+                  Get Started
                 </Button>
               </Link>
-              <Link href="/docs">
+              <Link href="https://github.com/actionchat/actionchat" target="_blank">
                 <Button
                   size="lg"
                   variant="outline"
                   className="text-lg px-8 py-6 bg-transparent border-white/20 text-white hover:bg-white/5"
                 >
-                  Read the Docs
+                  Star on GitHub
                 </Button>
               </Link>
             </div>
@@ -302,7 +293,7 @@ function HomeContent() {
 
 export default function Home() {
   return (
-    <PublicOnly redirectTo="/sources">
+    <PublicOnly redirectTo="/chat">
       <HomeContent />
     </PublicOnly>
   );

@@ -10,11 +10,12 @@ import { executeTool, formatToolResult } from './tool-executor';
  *
  * @param {Array} toolRows - Rows from get_agent_tools RPC
  * @param {object} opts
- * @param {Map} opts.sourceMap - Map of source name → source config (auth_type, auth_config, base_url)
- * @param {string|null} opts.userAuthToken - User's passthrough API token
+ * @param {Map} opts.sourceMap - Map of source name → source config (auth_type, base_url, name)
+ * @param {Map} opts.userCredentialsMap - Map of source_id → user's credentials for that source
+ * @param {string|null} opts.userId - User ID for per-user mock data isolation
  * @returns {object} AI SDK tools object keyed by tool identifier
  */
-export function convertToolsToAISDK(toolRows, { sourceMap, userAuthToken }) {
+export function convertToolsToAISDK(toolRows, { sourceMap, userCredentialsMap, userId }) {
   const tools = {};
 
   for (const row of toolRows) {
@@ -30,6 +31,9 @@ export function convertToolsToAISDK(toolRows, { sourceMap, userAuthToken }) {
 
     if (!source) continue;
 
+    // Get user's credentials for this source
+    const userCredentials = userCredentialsMap?.get(source.id) || null;
+
     // Build merged parameter schema for the LLM
     const inputSchema = buildInputSchema(row);
 
@@ -41,13 +45,14 @@ export function convertToolsToAISDK(toolRows, { sourceMap, userAuthToken }) {
 
     const toolDef = {
       description,
-      parameters: inputSchema,
+      inputSchema: inputSchema,
       execute: async (args) => {
         const result = await executeTool({
           tool: row,
           source,
           args,
-          userAuthToken,
+          userCredentials,
+          userId,
         });
         return {
           _actionchat: {
@@ -85,40 +90,90 @@ function buildInputSchema(toolRow) {
   const properties = {};
   const required = [];
 
+  // Clean raw data first to remove "None" types at source
+  const params = deepCleanSchema(toolRow.parameters || {});
+  const body = deepCleanSchema(toolRow.request_body || {});
+
   // Add path/query parameters (strip the `in` field — LLM doesn't need it)
-  if (toolRow.parameters?.properties) {
-    for (const [name, schema] of Object.entries(toolRow.parameters.properties)) {
+  if (params.properties && typeof params.properties === 'object') {
+    for (const [name, schema] of Object.entries(params.properties)) {
+      if (!schema || typeof schema !== 'object') continue;
       const { in: _in, ...rest } = schema;
       properties[name] = {
         ...rest,
-        description: rest.description || `${_in} parameter: ${name}`,
+        type: rest.type || 'string',
+        description: rest.description || `${_in || 'query'} parameter: ${name}`,
       };
     }
-    if (toolRow.parameters.required) {
-      required.push(...toolRow.parameters.required);
+    if (Array.isArray(params.required)) {
+      required.push(...params.required);
     }
   }
 
-  // Add request body properties
-  if (toolRow.request_body?.properties) {
-    for (const [name, schema] of Object.entries(toolRow.request_body.properties)) {
-      properties[name] = schema;
+  // Add request body properties - handle both wrapped and unwrapped schemas
+  const bodyProps = body.properties || (body.type === 'object' ? {} : null);
+
+  if (bodyProps && typeof bodyProps === 'object') {
+    for (const [name, schema] of Object.entries(bodyProps)) {
+      if (!schema || typeof schema !== 'object') continue;
+      properties[name] = {
+        ...schema,
+        type: schema.type || 'string',
+      };
     }
-    if (toolRow.request_body.required) {
-      required.push(...toolRow.request_body.required);
+    if (Array.isArray(body.required)) {
+      required.push(...body.required);
     }
   }
 
-  if (Object.keys(properties).length === 0) {
-    return jsonSchema({ type: 'object', properties: {} });
+  // Always return a valid object schema - explicitly set type last to prevent overrides
+  const schema = {
+    properties: properties,
+  };
+
+  if (required.length > 0) {
+    schema.required = required;
   }
 
-  return jsonSchema({
-    type: 'object',
-    properties,
-    ...(required.length > 0 ? { required } : {}),
-  });
+  // Force type: object - this must be last to prevent any override
+  schema.type = 'object';
+
+  // Final validation before wrapping
+  const finalSchema = deepCleanSchema(schema);
+
+  return jsonSchema(finalSchema);
 }
+
+/**
+ * Deep clean a schema object to remove all "None" type values.
+ */
+function deepCleanSchema(obj) {
+  if (obj === null || obj === undefined) {
+    return { type: 'string' };
+  }
+
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(deepCleanSchema);
+  }
+
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'type' && (value === 'None' || value === 'null' || value === null)) {
+      result[key] = 'string';
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = deepCleanSchema(value);
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result;
+}
+
 
 /**
  * Create a safe, unique key for a tool. AI SDK tool keys must be valid identifiers.

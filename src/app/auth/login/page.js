@@ -34,7 +34,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      let redirectUrl = '/sources';
+      let redirectUrl = '/chat';
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('auth_redirect_to');
         if (stored) {
@@ -140,7 +140,7 @@ export default function LoginPage() {
               The anti-UI for internal operations
             </p>
 
-            {storedRedirect && storedRedirect !== '/sources' && (
+            {storedRedirect && storedRedirect !== '/chat' && (
               <div className="mt-4 px-4 py-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-300 text-sm">
                 {storedRedirect.includes('/join/')
                   ? "Sign in to join the team. You'll be redirected back automatically."

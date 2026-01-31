@@ -1,4 +1,4 @@
-import { streamText, convertToModelMessages } from 'ai';
+import { streamText } from 'ai';
 import { createClient, getUserOrgId } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
 import { getModelForAgent } from '@/lib/ai-provider';
@@ -20,7 +20,7 @@ export async function POST(request) {
 
     // Parse body first to get agentId for API key scope check
     const body = await request.json();
-    const { messages, agentId, chatId: existingChatId, userAuthToken } = body;
+    const { messages, agentId, chatId: existingChatId } = body;
 
     if (!agentId) {
       return new Response(JSON.stringify({ error: 'agentId is required' }), {
@@ -28,6 +28,95 @@ export async function POST(request) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return new Response(JSON.stringify({ error: 'messages array is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Convert UI messages to CoreMessage format for streamText
+    // UIMessage uses 'parts' array, CoreMessage uses 'content' string or array
+    const normalizedMessages = messages
+      .filter(m => m && m.role)
+      .map(msg => {
+        // If message already has content as string, use it
+        if (typeof msg.content === 'string') {
+          return { role: msg.role, content: msg.content };
+        }
+
+        // If message has parts array (UIMessage format), convert to content
+        if (msg.parts && Array.isArray(msg.parts)) {
+          // Extract text parts and tool parts
+          const textParts = msg.parts.filter(p => p.type === 'text');
+          const toolCallParts = msg.parts.filter(p => p.type === 'tool-call');
+          const toolResultParts = msg.parts.filter(p => p.type === 'tool-result');
+
+          // For user messages, just extract text
+          if (msg.role === 'user') {
+            const text = textParts.map(p => p.text).join('\n');
+            return { role: 'user', content: text };
+          }
+
+          // For assistant messages with tool calls, use the AI SDK format
+          if (msg.role === 'assistant') {
+            if (toolCallParts.length > 0) {
+              // Build content array with text and tool-call parts
+              const content = [];
+              if (textParts.length > 0) {
+                content.push({ type: 'text', text: textParts.map(p => p.text).join('\n') });
+              }
+              for (const tc of toolCallParts) {
+                content.push({
+                  type: 'tool-call',
+                  toolCallId: tc.toolCallId,
+                  toolName: tc.toolName,
+                  args: tc.args,
+                });
+              }
+              return { role: 'assistant', content };
+            }
+            // Plain text assistant message
+            const text = textParts.map(p => p.text).join('\n');
+            return { role: 'assistant', content: text };
+          }
+
+          // For tool results
+          if (msg.role === 'tool' || toolResultParts.length > 0) {
+            const toolResults = toolResultParts.map(tr => ({
+              type: 'tool-result',
+              toolCallId: tr.toolCallId,
+              toolName: tr.toolName,
+              result: tr.result,
+            }));
+            return { role: 'tool', content: toolResults };
+          }
+
+          // Fallback: extract text
+          const text = textParts.map(p => p.text).join('\n');
+          return { role: msg.role, content: text || '' };
+        }
+
+        // If content is already an array (CoreMessage format), pass through
+        if (Array.isArray(msg.content)) {
+          return { role: msg.role, content: msg.content };
+        }
+
+        // Fallback
+        return { role: msg.role, content: msg.content || '' };
+      })
+      .filter(m => m.content !== undefined && m.content !== null);
+
+    if (normalizedMessages.length === 0) {
+      return new Response(JSON.stringify({ error: 'No valid messages' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('[CHAT] Normalized messages:', normalizedMessages.length);
+    console.log('[CHAT] Message roles:', normalizedMessages.map(m => m.role).join(', '));
 
     // 1. Auth — try API key first, then session
     let user = null;
@@ -105,9 +194,11 @@ export async function POST(request) {
       agent_uuid: agentId,
     });
 
-    // 7. Load source auth configs for tool execution
+    // 7. Load source configs and user credentials for tool execution
     const sourceNames = [...new Set((toolRows || []).map(t => t.source_name))];
     let sourceMap = new Map();
+    let userCredentialsMap = new Map();
+    let activeSourceIds = [];
 
     if (sourceNames.length > 0) {
       // Get agent_sources to find source_ids
@@ -117,15 +208,30 @@ export async function POST(request) {
         .eq('agent_id', agentId);
 
       if (agentSourceLinks?.length > 0) {
-        const sourceIds = agentSourceLinks.map(l => l.source_id);
+        activeSourceIds = agentSourceLinks.map(l => l.source_id);
+
+        // Load sources
         const { data: sources } = await supabase
           .from('api_sources')
-          .select('id, name, base_url, auth_type, auth_config')
-          .in('id', sourceIds);
+          .select('id, name, base_url, auth_type')
+          .in('id', activeSourceIds);
 
         if (sources) {
           for (const source of sources) {
             sourceMap.set(source.name, source);
+          }
+        }
+
+        // Load user's credentials for these sources
+        const { data: userCreds } = await supabase
+          .from('user_api_credentials')
+          .select('source_id, credentials')
+          .eq('user_id', user.id)
+          .in('source_id', activeSourceIds);
+
+        if (userCreds) {
+          for (const cred of userCreds) {
+            userCredentialsMap.set(cred.source_id, cred.credentials);
           }
         }
       }
@@ -134,7 +240,8 @@ export async function POST(request) {
     // 8. Convert tools to AI SDK format
     const aiTools = convertToolsToAISDK(toolRows || [], {
       sourceMap,
-      userAuthToken: userAuthToken || null,
+      userCredentialsMap,
+      userId: user.id, // For per-user mock data isolation
     });
 
     // 9. Build system prompt
@@ -143,11 +250,11 @@ export async function POST(request) {
     // 10. Create or reuse chat session
     let chatId = existingChatId;
     if (!chatId) {
-      const firstUserMsg = messages?.find(m => m.role === 'user');
-      const title = firstUserMsg?.parts
-        ?.find(p => p.type === 'text')?.text?.slice(0, 100)
-        || firstUserMsg?.content?.slice(0, 100)
-        || 'New chat';
+      const firstUserMsg = normalizedMessages.find(m => m.role === 'user');
+      const titleContent = typeof firstUserMsg?.content === 'string'
+        ? firstUserMsg.content
+        : firstUserMsg?.parts?.find(p => p.type === 'text')?.text || '';
+      const title = titleContent.slice(0, 100) || 'New chat';
 
       const { data: chat, error: chatError } = await supabase
         .from('chats')
@@ -156,6 +263,7 @@ export async function POST(request) {
           agent_id: agentId,
           user_id: user.id,
           title,
+          source_ids: activeSourceIds,
         })
         .select('id')
         .single();
@@ -173,7 +281,7 @@ export async function POST(request) {
     const result = streamText({
       model,
       system: systemPrompt,
-      messages: convertToModelMessages(messages),
+      messages: normalizedMessages,
       tools: hasTools ? aiTools : undefined,
       maxSteps: hasTools ? 5 : 1,
       temperature: agent.temperature ?? 0.1,
@@ -182,19 +290,22 @@ export async function POST(request) {
 
         try {
           // Save the last user message
-          const lastUserMsg = messages?.findLast(m => m.role === 'user');
+          const lastUserMsg = normalizedMessages.findLast(m => m.role === 'user');
           if (lastUserMsg) {
-            const userText = lastUserMsg.parts
-              ?.find(p => p.type === 'text')?.text
-              || lastUserMsg.content
-              || '';
+            // Extract text content from various formats
+            const userText = typeof lastUserMsg.content === 'string'
+              ? lastUserMsg.content
+              : lastUserMsg.parts?.find(p => p.type === 'text')?.text || '';
 
             if (userText) {
-              await supabase.from('messages').insert({
+              const { error: userMsgError } = await supabase.from('messages').insert({
                 chat_id: chatId,
                 role: 'user',
                 content: userText,
               });
+              if (userMsgError) {
+                console.error('[CHAT] Failed to save user message:', userMsgError);
+              }
             }
           }
 
@@ -209,7 +320,7 @@ export async function POST(request) {
             }
           }
 
-          const { data: assistantMsg } = await supabase
+          const { data: assistantMsg, error: assistantMsgError } = await supabase
             .from('messages')
             .insert({
               chat_id: chatId,
@@ -224,6 +335,12 @@ export async function POST(request) {
             })
             .select('id')
             .single();
+
+          if (assistantMsgError) {
+            console.error('[CHAT] Failed to save assistant message:', assistantMsgError);
+          } else {
+            console.log('[CHAT] Saved assistant message:', assistantMsg?.id);
+          }
 
           // Log tool executions to action_log
           for (const step of (steps || [])) {
@@ -297,11 +414,18 @@ function buildSystemPrompt(agent, toolRows) {
     parts.push('\n## Available API Tools\n');
     parts.push('You have access to the following API endpoints as tools:\n');
 
-    for (const tool of toolRows) {
-      const risk = tool.risk_level === 'dangerous' ? ' [DANGEROUS - requires confirmation]'
-        : tool.risk_level === 'moderate' ? ' [MODERATE]'
-        : '';
-      parts.push(`- **${tool.tool_name}**: ${tool.description || 'No description'} (${tool.method} ${tool.path})${risk}`);
+    // Group tools by HTTP method for clarity
+    const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+    for (const method of methods) {
+      const methodTools = toolRows.filter(t => t.method === method);
+      if (methodTools.length === 0) continue;
+
+      for (const tool of methodTools) {
+        const risk = tool.risk_level === 'dangerous' ? ' [DANGEROUS - requires confirmation]'
+          : tool.risk_level === 'moderate' ? ' [MODERATE]'
+          : '';
+        parts.push(`- **${tool.tool_name}**: ${tool.description || 'No description'} (${tool.method} ${tool.path})${risk}`);
+      }
     }
 
     parts.push('\n## Guidelines\n');
@@ -310,8 +434,23 @@ function buildSystemPrompt(agent, toolRows) {
     parts.push('- Include relevant IDs and details in your explanations.');
     parts.push('- If a tool call fails, explain the error clearly and suggest next steps.');
     parts.push('- Summarize the results of tool calls in clear, natural language.');
+
+    parts.push('\n## CRITICAL: When You Cannot Do Something\n');
+    parts.push('If the user asks for an action you cannot perform with your available tools, you MUST:');
+    parts.push('');
+    parts.push('1. **State the gap clearly**: "This API does not have a PATCH/PUT endpoint for updating users."');
+    parts.push('2. **List available alternatives**: "Here\'s what I CAN do with users:"');
+    parts.push('   - GET /users — list all users');
+    parts.push('   - GET /users/{id} — get a specific user');
+    parts.push('   - POST /users — create a new user');
+    parts.push('   - DELETE /users/{id} — delete a user');
+    parts.push('3. **Suggest workarounds**: "To change a user\'s name, you could delete the old user and create a new one with the updated info (note: this changes the user ID)."');
+    parts.push('4. **Explain how to add the capability**: "If the underlying API supports updates, ask your admin to re-sync the OpenAPI spec to add the endpoint."');
+    parts.push('');
+    parts.push('NEVER say "I can\'t help with that" without listing what you CAN do and how the user can proceed.');
   } else {
-    parts.push('\nNo API tools are currently available. You can answer questions but cannot execute API actions.');
+    parts.push('\nNo API tools are currently available.');
+    parts.push('Tell the user: "No API tools are configured for this agent. Ask your admin to add an API source and assign it to this agent."');
   }
 
   return parts.join('\n');

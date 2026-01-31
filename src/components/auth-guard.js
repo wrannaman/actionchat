@@ -46,7 +46,7 @@ export function AuthGuard({ children, fallback = null, redirectTo = null }) {
   return <>{children}</>;
 }
 
-export function PublicOnly({ children, redirectTo = "/sources" }) {
+export function PublicOnly({ children, redirectTo = "/chat" }) {
   const { isAuthenticated, loading } = useAuth();
   const router = useRouter();
 

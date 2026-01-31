@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
 
 const METHOD_COLORS = {
   GET: "border-green-500/30 text-green-400 bg-green-500/10",
@@ -41,6 +41,26 @@ export function ToolCallDisplay({ toolName, input, output, state }) {
   const isLong = resultText.length > 300;
   const displayText = expanded ? resultText : resultText.slice(0, 300);
 
+  // Check if result looks like JSON
+  const isJson = resultText.startsWith("{") || resultText.startsWith("[");
+
+  const handleDownload = () => {
+    const blob = new Blob([resultText], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // Create filename from path or toolName
+    const filename = (path || toolName || "response")
+      .replace(/[^a-z0-9]/gi, "-")
+      .replace(/-+/g, "-")
+      .toLowerCase();
+    a.download = `${filename}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
       {/* Header: method badge + path */}
@@ -71,8 +91,19 @@ export function ToolCallDisplay({ toolName, input, output, state }) {
 
       {/* Output */}
       {hasOutput && (
-        <div className="mt-2 border-t border-white/5 pt-2">
-          <span className="text-white/30">result: </span>
+        <div className="group/output mt-2 border-t border-white/5 pt-2 relative">
+          <div className="flex items-center justify-between">
+            <span className="text-white/30">result: </span>
+            {isJson && (
+              <button
+                onClick={handleDownload}
+                className="opacity-0 group-hover/output:opacity-100 transition-opacity text-white/20 hover:text-white/50 p-1 -m-1"
+                title="Download JSON"
+              >
+                <Download className="h-3 w-3" />
+              </button>
+            )}
+          </div>
           <pre className="text-white/70 whitespace-pre-wrap break-words mt-1">
             {displayText}
             {isLong && !expanded && "..."}

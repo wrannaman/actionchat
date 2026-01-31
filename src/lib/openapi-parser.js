@@ -120,7 +120,53 @@ function extractRequestBody(requestBody) {
   if (!requestBody) return null;
   const jsonContent = requestBody.content?.['application/json'];
   if (!jsonContent?.schema) return null;
-  return jsonContent.schema;
+  return sanitizeSchema(jsonContent.schema);
+}
+
+/**
+ * Sanitize a JSON Schema to fix common issues from poorly-written OpenAPI specs.
+ * - Fixes type: "None" (Python artifact)
+ * - Fixes type: null
+ * - Ensures objects have type: "object"
+ */
+function sanitizeSchema(schema) {
+  if (!schema || typeof schema !== 'object') {
+    return { type: 'object', properties: {} };
+  }
+
+  const cleaned = { ...schema };
+
+  // Fix invalid type values
+  if (!cleaned.type || cleaned.type === 'None' || cleaned.type === 'null' || cleaned.type === null) {
+    // If it has properties, it's an object
+    if (cleaned.properties) {
+      cleaned.type = 'object';
+    } else {
+      cleaned.type = 'string';
+    }
+  }
+
+  // Recursively clean properties
+  if (cleaned.properties && typeof cleaned.properties === 'object') {
+    cleaned.properties = Object.fromEntries(
+      Object.entries(cleaned.properties).map(([key, value]) => [
+        key,
+        sanitizeSchema(value),
+      ])
+    );
+  }
+
+  // Recursively clean items (for arrays)
+  if (cleaned.items && typeof cleaned.items === 'object') {
+    cleaned.items = sanitizeSchema(cleaned.items);
+  }
+
+  // Clean additionalProperties if it's a schema
+  if (cleaned.additionalProperties && typeof cleaned.additionalProperties === 'object') {
+    cleaned.additionalProperties = sanitizeSchema(cleaned.additionalProperties);
+  }
+
+  return cleaned;
 }
 
 /**

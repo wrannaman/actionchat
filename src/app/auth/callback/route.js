@@ -221,7 +221,7 @@ export async function POST(request) {
 export async function GET(request) {
   try {
     const url = new URL(request.url)
-    const next = url.searchParams.get('redirectTo') || '/sources'
+    const next = url.searchParams.get('redirectTo') || '/chat'
     const code = url.searchParams.get('code')
     const token_hash = url.searchParams.get('token_hash')
     const type = url.searchParams.get('type')
@@ -426,7 +426,7 @@ export async function GET(request) {
                   if (response.ok) {
                     status.textContent = 'Success! Redirecting...';
                     // Check for stored redirect URL
-                    let redirectUrl = '/sources';
+                    let redirectUrl = '/chat';
                     try {
                       const stored = localStorage.getItem('auth_redirect_to');
                       if (stored) {
@@ -628,7 +628,7 @@ export async function GET(request) {
 <body>
 <script>
 (function() {
-  var redirectUrl = '/sources';
+  var redirectUrl = '/chat';
   try {
     var stored = localStorage.getItem('auth_redirect_to');
     if (stored) {

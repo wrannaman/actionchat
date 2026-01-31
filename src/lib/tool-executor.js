@@ -66,52 +66,68 @@ export function buildRequestBody(args, paramSchema, requestBodySchema) {
 }
 
 /**
- * Build Authorization/auth headers from source config.
+ * Build Authorization/auth headers from user credentials.
  *
- * @param {object} source - Source with auth_type and auth_config
- * @param {string|null} userAuthToken - User-provided token for passthrough auth
+ * @param {object} source - Source with auth_type
+ * @param {object|null} userCredentials - User's credentials from user_api_credentials table
  * @returns {object} Headers to add to the request
  */
-export function buildAuthHeaders(source, userAuthToken) {
+export function buildAuthHeaders(source, userCredentials) {
   const headers = {};
+  const creds = userCredentials || {};
 
   switch (source.auth_type) {
     case 'bearer':
-      if (source.auth_config?.token) {
-        headers['Authorization'] = `Bearer ${source.auth_config.token}`;
+      if (creds.token) {
+        headers['Authorization'] = `Bearer ${creds.token}`;
+      } else {
+        throw new Error(
+          `This API requires a Bearer token. Add your credentials for "${source.name}".`
+        );
       }
       break;
 
     case 'api_key': {
-      const headerName = source.auth_config?.header_name || 'X-API-Key';
-      const apiKey = source.auth_config?.api_key;
+      const headerName = creds.header_name || 'X-API-Key';
+      const apiKey = creds.api_key;
       if (apiKey) {
         headers[headerName] = apiKey;
+      } else {
+        throw new Error(
+          `This API requires an API key. Add your credentials for "${source.name}".`
+        );
       }
       break;
     }
 
     case 'basic': {
-      const { username, password } = source.auth_config || {};
+      const { username, password } = creds;
       if (username) {
         const encoded = Buffer.from(`${username}:${password || ''}`).toString('base64');
         headers['Authorization'] = `Basic ${encoded}`;
+      } else {
+        throw new Error(
+          `This API requires username/password. Add your credentials for "${source.name}".`
+        );
       }
       break;
     }
 
-    case 'passthrough':
-      if (userAuthToken) {
-        headers['Authorization'] = `Bearer ${userAuthToken}`;
+    case 'header': {
+      const { header_name, header_value } = creds;
+      if (header_name && header_value) {
+        headers[header_name] = header_value;
       } else {
         throw new Error(
-          'This API requires your credentials. Provide your API token in the chat settings (gear icon).'
+          `This API requires a custom header. Add your credentials for "${source.name}".`
         );
       }
       break;
+    }
 
     case 'none':
     default:
+      // No auth needed
       break;
   }
 
@@ -123,17 +139,18 @@ export function buildAuthHeaders(source, userAuthToken) {
  *
  * @param {object} params
  * @param {object} params.tool - Tool row from get_agent_tools
- * @param {object} params.source - Source with auth_type, auth_config, base_url
+ * @param {object} params.source - Source with auth_type, base_url, name
  * @param {object} params.args - LLM-generated arguments
- * @param {string|null} params.userAuthToken - User's passthrough token
+ * @param {object|null} params.userCredentials - User's credentials for this source
+ * @param {string|null} params.userId - User ID for per-user isolation (mock APIs)
  * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
  */
-export async function executeTool({ tool, source, args, userAuthToken }) {
+export async function executeTool({ tool, source, args, userCredentials, userId }) {
   const startTime = Date.now();
   const url = buildUrl(source.base_url, tool.path, args, tool.parameters);
 
   try {
-    const authHeaders = buildAuthHeaders(source, userAuthToken);
+    const authHeaders = buildAuthHeaders(source, userCredentials);
 
     const fetchOptions = {
       method: tool.method,
@@ -141,6 +158,8 @@ export async function executeTool({ tool, source, args, userAuthToken }) {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         ...authHeaders,
+        // Pass user ID for per-user mock data isolation
+        ...(userId ? { 'X-Mock-User': userId } : {}),
       },
     };
 

@@ -23,7 +23,11 @@ export function getModelForAgent(agent, orgSettings = {}) {
           'OpenAI API key not configured. Add it in your organization settings.'
         );
       }
-      const provider = createOpenAI({ apiKey });
+      const config = { apiKey };
+      if (orgSettings.openai_base_url) {
+        config.baseURL = orgSettings.openai_base_url;
+      }
+      const provider = createOpenAI(config);
       return provider(model_name);
     }
 

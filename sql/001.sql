@@ -91,7 +91,25 @@ CREATE INDEX idx_sources_org ON api_sources(org_id);
 COMMENT ON TABLE api_sources IS 'A "Scope" — one OpenAPI spec or manual endpoint collection. auth_config holds target API credentials.';
 
 -- ============================================================================
--- 5. TOOLS — individual API endpoints parsed from spec or manually defined
+-- 5. USER_API_CREDENTIALS — per-user auth for each API source
+-- ============================================================================
+
+CREATE TABLE user_api_credentials (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  source_id UUID NOT NULL REFERENCES api_sources(id) ON DELETE CASCADE,
+  credentials JSONB NOT NULL DEFAULT '{}',  -- { token: "xxx" } or { api_key: "xxx" } or { username, password }
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, source_id)
+);
+CREATE TRIGGER trg_user_api_credentials BEFORE UPDATE ON user_api_credentials FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE INDEX idx_uac_user ON user_api_credentials(user_id);
+CREATE INDEX idx_uac_source ON user_api_credentials(source_id);
+COMMENT ON TABLE user_api_credentials IS 'Per-user credentials for API sources. Each user has their own token/key for each API.';
+
+-- ============================================================================
+-- 6. TOOLS — individual API endpoints parsed from spec or manually defined
 -- ============================================================================
 
 CREATE TABLE tools (
@@ -172,7 +190,29 @@ CREATE INDEX idx_maa_agent ON member_agent_access(agent_id);  -- reverse lookup:
 COMMENT ON TABLE member_agent_access IS 'Grants a member access to a specific agent. owner/admin skip this — they see all agents.';
 
 -- ============================================================================
--- 9. CHATS — conversation sessions
+-- 9. ROUTINES — saved prompt templates (free text, LLM interprets)
+-- ============================================================================
+
+CREATE TABLE routines (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id UUID NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL,                     -- free text template, e.g. "Refund [email] for [amount]"
+  description TEXT,                         -- optional short description
+  is_shared BOOLEAN NOT NULL DEFAULT false, -- visible to whole org or just creator
+  use_count INTEGER NOT NULL DEFAULT 0,     -- track popularity
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TRIGGER trg_routines BEFORE UPDATE ON routines FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE INDEX idx_routines_org ON routines(org_id);
+CREATE INDEX idx_routines_user ON routines(created_by);
+COMMENT ON TABLE routines IS 'Saved prompt templates. Free text, no strict schema. LLM interprets placeholders.';
+
+-- ============================================================================
+-- 10. CHATS — conversation sessions
 -- ============================================================================
 
 CREATE TABLE chats (
@@ -181,6 +221,7 @@ CREATE TABLE chats (
   agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   title TEXT,
+  source_ids UUID[] NOT NULL DEFAULT '{}',  -- snapshot of which API sources were active
   is_archived BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -326,10 +367,12 @@ ALTER TABLE org                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_members          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_invites          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_sources          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_api_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tools                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agents               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_sources        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE member_agent_access  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE routines             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chats                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE action_log           ENABLE ROW LEVEL SECURITY;
@@ -380,6 +423,31 @@ AS $$
   WHERE user_id = auth.uid() AND role = 'owner'
 $$;
 
+-- Get agent IDs user can access (admin orgs + member_agent_access grants)
+-- This bypasses RLS to avoid infinite recursion in agent policies
+CREATE OR REPLACE FUNCTION get_user_agent_ids()
+RETURNS UUID[]
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT COALESCE(array_agg(DISTINCT agent_id), '{}')
+  FROM (
+    -- Admins/owners can access all agents in their orgs
+    SELECT a.id AS agent_id
+    FROM agents a
+    JOIN org_members om ON a.org_id = om.org_id
+    WHERE om.user_id = auth.uid() AND om.role IN ('owner', 'admin')
+    UNION
+    -- Members can access agents they're granted access to
+    SELECT maa.agent_id
+    FROM member_agent_access maa
+    JOIN org_members om ON om.id = maa.member_id
+    WHERE om.user_id = auth.uid()
+  ) sub
+$$;
+
 -- ────────────────────────────────────────────────────────────────────────────
 -- ROW LEVEL SECURITY POLICIES
 -- Using helper functions to avoid infinite recursion on org_members
@@ -413,29 +481,37 @@ CREATE POLICY sources_read ON api_sources FOR SELECT USING (
 CREATE POLICY sources_write ON api_sources FOR ALL USING (
   org_id = ANY(get_user_admin_org_ids()));
 
+-- user_api_credentials: users manage their own credentials only
+CREATE POLICY uac_own ON user_api_credentials FOR ALL USING (user_id = auth.uid());
+
 -- tools: members read (via source org), admin writes
 CREATE POLICY tools_read ON tools FOR SELECT USING (
   source_id IN (SELECT id FROM api_sources WHERE org_id = ANY(get_user_org_ids())));
 CREATE POLICY tools_write ON tools FOR ALL USING (
   source_id IN (SELECT id FROM api_sources WHERE org_id = ANY(get_user_admin_org_ids())));
 
--- agents: admin sees all + writes; members see only via member_agent_access
-CREATE POLICY agents_admin ON agents FOR ALL USING (
+-- agents: use get_user_agent_ids() to avoid infinite recursion
+CREATE POLICY agents_select ON agents FOR SELECT USING (
+  id = ANY(get_user_agent_ids()));
+CREATE POLICY agents_write ON agents FOR ALL USING (
   org_id = ANY(get_user_admin_org_ids()));
-CREATE POLICY agents_member ON agents FOR SELECT USING (
-  id IN (SELECT maa.agent_id FROM member_agent_access maa JOIN org_members om ON om.id = maa.member_id WHERE om.user_id = auth.uid()));
 
--- agent_sources: admin manages; members read if they have agent access
-CREATE POLICY as_admin ON agent_sources FOR ALL USING (
-  agent_id IN (SELECT id FROM agents WHERE org_id = ANY(get_user_admin_org_ids())));
-CREATE POLICY as_member ON agent_sources FOR SELECT USING (
-  agent_id IN (SELECT maa.agent_id FROM member_agent_access maa JOIN org_members om ON om.id = maa.member_id WHERE om.user_id = auth.uid()));
+-- agent_sources: use get_user_agent_ids() to avoid infinite recursion
+CREATE POLICY as_select ON agent_sources FOR SELECT USING (
+  agent_id = ANY(get_user_agent_ids()));
+CREATE POLICY as_write ON agent_sources FOR ALL USING (
+  agent_id = ANY(get_user_agent_ids()) AND agent_id IN (SELECT id FROM agents WHERE org_id = ANY(get_user_admin_org_ids())));
 
 -- member_agent_access: admin manages grants; members see own
 CREATE POLICY maa_admin ON member_agent_access FOR ALL USING (
-  agent_id IN (SELECT id FROM agents WHERE org_id = ANY(get_user_admin_org_ids())));
+  agent_id = ANY(get_user_agent_ids()) AND agent_id IN (SELECT id FROM agents WHERE org_id = ANY(get_user_admin_org_ids())));
 CREATE POLICY maa_own ON member_agent_access FOR SELECT USING (
   member_id IN (SELECT id FROM org_members WHERE user_id = auth.uid()));
+
+-- routines: users manage own; see shared ones in org
+CREATE POLICY routines_own ON routines FOR ALL USING (created_by = auth.uid());
+CREATE POLICY routines_shared ON routines FOR SELECT USING (
+  is_shared = true AND org_id = ANY(get_user_org_ids()));
 
 -- chats: users own theirs; admin views all (audit)
 CREATE POLICY chats_own ON chats FOR ALL USING (user_id = auth.uid());
@@ -581,6 +657,7 @@ END; $$;
 GRANT EXECUTE ON FUNCTION get_user_org_ids()                 TO authenticated;
 GRANT EXECUTE ON FUNCTION get_user_admin_org_ids()           TO authenticated;
 GRANT EXECUTE ON FUNCTION get_user_owner_org_ids()           TO authenticated;
+GRANT EXECUTE ON FUNCTION get_user_agent_ids()               TO authenticated;
 GRANT EXECUTE ON FUNCTION ensure_current_user_org(TEXT)      TO authenticated;
 GRANT EXECUTE ON FUNCTION my_organizations()                 TO authenticated;
 GRANT EXECUTE ON FUNCTION get_my_org_id()                    TO authenticated;

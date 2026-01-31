@@ -8,6 +8,7 @@ export function AuthenticatedNav() {
   const pathname = usePathname();
 
   const navLinks = [
+    { href: "/chat", label: "Chat" },
     { href: "/sources", label: "Sources" },
     { href: "/agents", label: "Agents" },
     { href: "/activity", label: "Activity" },
@@ -18,7 +19,7 @@ export function AuthenticatedNav() {
     <header className="border-b border-white/5 bg-[#0a0a0f]">
       <div className="container mx-auto px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/sources" className="flex items-center gap-2">
+          <Link href="/chat" className="flex items-center gap-2">
             <span className="text-xl font-black tracking-tight text-white">
               Action<span className="text-blue-400">Chat</span>
             </span>

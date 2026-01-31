@@ -1,11 +1,41 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ToolCallDisplay } from "./tool-call-display";
 import { ConfirmationPrompt } from "./confirmation-prompt";
 
+// Normalize message to always have parts array
+function normalizeParts(message) {
+  // If already has parts, use them
+  if (message.parts && message.parts.length > 0) {
+    return message.parts;
+  }
+  // Convert content string to parts array
+  if (typeof message.content === 'string' && message.content) {
+    return [{ type: 'text', text: message.content }];
+  }
+  // Fallback
+  return [];
+}
+
 export function ChatMessage({ message, onApprove, onReject }) {
-  const { role, parts } = message;
+  const { role } = message;
+  const parts = normalizeParts(message);
+
+  // Debug: log message structure to understand tool call duplication
+  if (role === "assistant" && parts.some(p => p.type?.startsWith("tool-"))) {
+    console.log("[ChatMessage] Assistant with tools:", {
+      id: message.id,
+      partsCount: parts.length,
+      toolParts: parts.filter(p => p.type?.startsWith("tool-")).map(p => ({
+        type: p.type,
+        toolCallId: p.toolCallId,
+        toolName: p.toolName,
+        state: p.state,
+      })),
+    });
+  }
 
   if (role === "user") {
     return <UserMessage parts={parts} />;
@@ -33,22 +63,36 @@ function UserMessage({ parts }) {
 
   if (!text) return null;
 
-  return (
-    <div className="py-1 font-mono text-sm">
-      <span className="text-green-500 select-none">&gt; </span>
-      <span className="text-green-300">{text}</span>
-    </div>
-  );
+  return <p className="whitespace-pre-wrap">{text}</p>;
 }
 
 function AssistantMessage({ parts, onApprove, onReject }) {
   if (!parts || parts.length === 0) return null;
 
+  // Dedupe tool calls by toolCallId to prevent duplicates from multi-step accumulation
+  const seenToolCallIds = new Set();
+  const dedupedParts = parts.filter((part) => {
+    // Non-tool parts always pass through
+    if (!part.type?.startsWith("tool-") && part.type !== "dynamic-tool") {
+      return true;
+    }
+
+    // Tool parts - dedupe by toolCallId
+    const toolCallId = part.toolCallId || part.id;
+    if (toolCallId && seenToolCallIds.has(toolCallId)) {
+      return false; // Skip duplicate
+    }
+    if (toolCallId) {
+      seenToolCallIds.add(toolCallId);
+    }
+    return true;
+  });
+
   return (
-    <div className="py-1">
-      {parts.map((part, i) => (
+    <div className="space-y-2">
+      {dedupedParts.map((part, i) => (
         <AssistantPart
-          key={`${i}-${part.type}`}
+          key={part.toolCallId || part.id || `${i}-${part.type}`}
           part={part}
           onApprove={onApprove}
           onReject={onReject}
@@ -63,8 +107,21 @@ function AssistantPart({ part, onApprove, onReject }) {
   if (part.type === "text") {
     if (!part.text) return null;
     return (
-      <div className="font-mono text-sm text-white/80 prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-code:text-cyan-400 prose-pre:bg-white/5 prose-pre:border prose-pre:border-white/10">
-        <ReactMarkdown>{part.text}</ReactMarkdown>
+      <div className="prose prose-invert prose-sm max-w-none
+        prose-p:my-1 prose-p:leading-relaxed
+        prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5
+        prose-code:text-cyan-400 prose-code:bg-white/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+        prose-pre:bg-black/30 prose-pre:border prose-pre:border-white/10 prose-pre:rounded-lg prose-pre:my-2
+        prose-table:border-collapse prose-table:w-full prose-table:my-3
+        prose-th:border prose-th:border-white/20 prose-th:bg-white/10 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
+        prose-td:border prose-td:border-white/10 prose-td:px-3 prose-td:py-2
+        prose-headings:text-white prose-headings:font-semibold
+        prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
+        prose-a:text-blue-400 prose-a:no-underline hover:prose-a:underline
+        prose-strong:text-white prose-strong:font-semibold
+        prose-blockquote:border-l-2 prose-blockquote:border-white/20 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-white/60
+      ">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
       </div>
     );
   }

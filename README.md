@@ -1,8 +1,10 @@
 # ActionChat
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
+
 **The Anti-UI for Internal Operations.**
 
-Turn any `openapi.json` into a secure, authenticated command center in 30 seconds. Stop building admin panels — just build the API.
+Stop building 19-click admin dashboards. ActionChat turns your `openapi.json` into a secure, self-hosted AI command center.
 
 ```
 User: "Refund the last order for bob@example.com"
@@ -22,10 +24,14 @@ User: "Y"
 ## Quick Start
 
 ```bash
-docker run -v ./openapi.json:/app/spec.json -p 8000:8000 actionchat/core
+git clone https://github.com/actionchat/actionchat.git
+cd actionchat
+cp env.example .env
+# Add your Supabase + LLM API keys to .env
+yarn install && yarn dev
 ```
 
-That's it. Your APIs are now chat-accessible.
+Open `http://localhost:3000`, paste an OpenAPI spec, and start chatting with your API.
 
 ## How It Works
 
