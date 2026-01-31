@@ -67,17 +67,17 @@ VALUES
   -- Okta
   ('de72f490-2b50-4809-b137-41a384ca1ad5', 'okta', 'Okta', 'Identity and access management platform', 'auth', '/integrations/okta.svg', 'https://developer.okta.com/docs/reference/api/', 'openapi', 'https://raw.githubusercontent.com/okta/okta-management-openapi-spec/master/dist/spec.yaml', NULL, 'api_key', '{"header": "Authorization", "prefix": "SSWS", "credential_field": "api_key", "credential_label": "API Token", "credential_placeholder": "Your Okta API token"}', ARRAY['Create a user', 'Reset password', 'Assign app', 'Deactivate user', 'Reset MFA'], false),
 
-  -- Auth0 (placeholder ID - need real UUID)
-  ('00000000-0000-4000-a000-000000000021', 'auth0', 'Auth0', 'Authentication and authorization platform', 'auth', '/integrations/auth0.svg', 'https://auth0.com/docs/api/management/v2', 'openapi', NULL, NULL, 'bearer', '{"header": "Authorization", "prefix": "Bearer", "credential_field": "token", "credential_label": "Management API Token", "credential_placeholder": "eyJ..."}', ARRAY['Create a user', 'Update user roles', 'Reset MFA', 'Block user', 'Delete user'], false),
+  -- Auth0
+  ('eaba6056-76e4-43d6-a198-e910a42be062', 'auth0', 'Auth0', 'Authentication and authorization platform', 'auth', '/integrations/auth0.svg', 'https://auth0.com/docs/api/management/v2', 'openapi', NULL, NULL, 'bearer', '{"header": "Authorization", "prefix": "Bearer", "credential_field": "token", "credential_label": "Management API Token", "credential_placeholder": "eyJ..."}', ARRAY['Create a user', 'Update user roles', 'Reset MFA', 'Block user', 'Delete user'], false),
 
-  -- Filesystem (MCP) (placeholder ID - need real UUID)
-  ('00000000-0000-4000-a000-000000000022', 'filesystem', 'Filesystem', 'Local file system access for reading and writing files', 'system', '/integrations/filesystem.svg', 'https://modelcontextprotocol.io/docs/servers/filesystem', 'mcp', NULL, '@modelcontextprotocol/server-filesystem', 'none', '{"env_var": "ALLOWED_DIRECTORIES", "credential_field": "allowed_directories", "credential_label": "Allowed Directories", "credential_placeholder": "/path/to/dir1,/path/to/dir2"}', ARRAY['List files', 'Read file contents', 'Write to file', 'Search files', 'Move files'], false),
+  -- Filesystem (MCP)
+  ('63d2f63a-9727-41d3-aaec-a9cc624e0bf0', 'filesystem', 'Filesystem', 'Local file system access for reading and writing files', 'system', '/integrations/filesystem.svg', 'https://modelcontextprotocol.io/docs/servers/filesystem', 'mcp', NULL, '@modelcontextprotocol/server-filesystem', 'none', '{"env_var": "ALLOWED_DIRECTORIES", "credential_field": "allowed_directories", "credential_label": "Allowed Directories", "credential_placeholder": "/path/to/dir1,/path/to/dir2"}', ARRAY['List files', 'Read file contents', 'Write to file', 'Search files', 'Move files'], false),
 
-  -- Shopify (placeholder ID - need real UUID)
-  ('00000000-0000-4000-a000-000000000023', 'shopify', 'Shopify', 'E-commerce platform for online stores', 'ecommerce', '/integrations/shopify.svg', 'https://shopify.dev/docs/api/admin-rest', 'openapi', NULL, NULL, 'header', '{"header": "X-Shopify-Access-Token", "credential_field": "access_token", "credential_label": "Admin API Token", "credential_placeholder": "shpat_..."}', ARRAY['List orders', 'Create refund', 'Update inventory', 'Cancel order', 'Add product'], false),
+  -- Shopify
+  ('29b57ec2-6023-486d-86af-3818e086e66e', 'shopify', 'Shopify', 'E-commerce platform for online stores', 'ecommerce', '/integrations/shopify.svg', 'https://shopify.dev/docs/api/admin-rest', 'openapi', NULL, NULL, 'header', '{"header": "X-Shopify-Access-Token", "credential_field": "access_token", "credential_label": "Admin API Token", "credential_placeholder": "shpat_..."}', ARRAY['List orders', 'Create refund', 'Update inventory', 'Cancel order', 'Add product'], false),
 
-  -- Vercel (placeholder ID - need real UUID)
-  ('00000000-0000-4000-a000-000000000024', 'vercel', 'Vercel', 'Frontend cloud platform for deployments', 'devops', '/integrations/vercel.svg', 'https://vercel.com/docs/rest-api', 'openapi', NULL, NULL, 'bearer', '{"header": "Authorization", "prefix": "Bearer", "credential_field": "token", "credential_label": "API Token", "credential_placeholder": "Your Vercel token"}', ARRAY['List deployments', 'Trigger redeploy', 'Check deployment status', 'Update env vars', 'Rollback deployment'], false)
+  -- Vercel
+  ('21df7ee4-812a-423c-9ea9-6d1a8b534e44', 'vercel', 'Vercel', 'Frontend cloud platform for deployments', 'devops', '/integrations/vercel.svg', 'https://vercel.com/docs/rest-api', 'openapi', NULL, NULL, 'bearer', '{"header": "Authorization", "prefix": "Bearer", "credential_field": "token", "credential_label": "API Token", "credential_placeholder": "Your Vercel token"}', ARRAY['List deployments', 'Trigger redeploy', 'Check deployment status', 'Update env vars', 'Rollback deployment'], false)
 
 ON CONFLICT (id) DO UPDATE SET
   slug = EXCLUDED.slug,

@@ -12,6 +12,7 @@ DROP TABLE IF EXISTS
   agents,
   tools,
   api_sources,
+  source_templates,
   org_invites,
   org_members,
   org

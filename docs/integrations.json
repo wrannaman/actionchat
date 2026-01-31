@@ -546,7 +546,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000021",
+      "id": "eaba6056-76e4-43d6-a198-e910a42be062",
       "slug": "auth0",
       "name": "Auth0",
       "description": "Authentication and authorization platform",
@@ -574,7 +574,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000022",
+      "id": "63d2f63a-9727-41d3-aaec-a9cc624e0bf0",
       "slug": "filesystem",
       "name": "Filesystem",
       "description": "Local file system access for reading and writing files",
@@ -600,7 +600,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000023",
+      "id": "29b57ec2-6023-486d-86af-3818e086e66e",
       "slug": "shopify",
       "name": "Shopify",
       "description": "E-commerce platform for online stores",
@@ -627,7 +627,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000024",
+      "id": "21df7ee4-812a-423c-9ea9-6d1a8b534e44",
       "slug": "vercel",
       "name": "Vercel",
       "description": "Frontend cloud platform for deployments",
