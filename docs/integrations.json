@@ -3,7 +3,7 @@
   "updated_at": "2025-01-31",
   "integrations": [
     {
-      "id": "00000000-0000-4000-a000-000000000001",
+      "id": "2e059b2b-9cef-4440-bf7f-be6d6eeb9160",
       "slug": "stripe",
       "name": "Stripe",
       "description": "Payment processing platform for internet businesses",
@@ -30,7 +30,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000002",
+      "id": "204bee05-541e-4161-a9b5-4fd36d1b843c",
       "slug": "twilio",
       "name": "Twilio",
       "description": "Cloud communications platform for SMS, voice, and video",
@@ -57,7 +57,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000003",
+      "id": "cb9a07cc-55f8-4492-9c3e-cfdebf1ea2d0",
       "slug": "github",
       "name": "GitHub",
       "description": "Code hosting platform for version control and collaboration",
@@ -84,7 +84,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000004",
+      "id": "e3249c17-f7ff-42af-bd5d-433a86c6ee5a",
       "slug": "slack",
       "name": "Slack",
       "description": "Business communication platform for teams",
@@ -111,7 +111,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000005",
+      "id": "730ce519-a862-4b2b-86f9-96a41817e77c",
       "slug": "sendgrid",
       "name": "SendGrid",
       "description": "Email delivery platform for transactional and marketing emails",
@@ -138,7 +138,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000006",
+      "id": "5cf457e4-0e4d-40f8-8cc0-f62d8edcc6ea",
       "slug": "pagerduty",
       "name": "PagerDuty",
       "description": "Incident management platform for DevOps teams",
@@ -165,7 +165,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000007",
+      "id": "9ff9e8c7-1f68-4549-85c6-44fd0e279778",
       "slug": "datadog",
       "name": "Datadog",
       "description": "Monitoring and analytics platform for cloud-scale applications",
@@ -194,7 +194,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000008",
+      "id": "f3b89547-fdaa-4cd7-8730-58ffe454c4e5",
       "slug": "linear",
       "name": "Linear",
       "description": "Issue tracking and project management for software teams",
@@ -222,7 +222,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000009",
+      "id": "242c7d2f-590e-4da5-8324-0f1e44178921",
       "slug": "jira",
       "name": "Jira",
       "description": "Issue and project tracking for agile teams",
@@ -249,7 +249,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-00000000000a",
+      "id": "67f9d620-694d-4d5e-8f28-95b1942925fe",
       "slug": "cloudflare",
       "name": "Cloudflare",
       "description": "Web performance and security services",
@@ -276,7 +276,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-00000000000b",
+      "id": "62334fa1-77cd-437b-956a-15886386c5a2",
       "slug": "hubspot",
       "name": "HubSpot",
       "description": "CRM and marketing automation platform",
@@ -304,7 +304,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-00000000000c",
+      "id": "1c26d33f-bf9a-4049-8534-64d89261bbeb",
       "slug": "intercom",
       "name": "Intercom",
       "description": "Customer messaging platform for sales and support",
@@ -331,7 +331,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-00000000000d",
+      "id": "395a460e-cf1b-4eab-83e4-792249b6c5c7",
       "slug": "zendesk",
       "name": "Zendesk",
       "description": "Customer service and engagement platform",
@@ -359,7 +359,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-00000000000e",
+      "id": "2669f6d9-eee7-4bf0-9ba8-ea849031c279",
       "slug": "freshdesk",
       "name": "Freshdesk",
       "description": "Customer support software for growing businesses",
@@ -386,7 +386,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-00000000000f",
+      "id": "d48c08cb-3e87-4b03-9608-7a5799285c20",
       "slug": "notion",
       "name": "Notion",
       "description": "All-in-one workspace for notes, docs, and databases",
@@ -412,7 +412,7 @@
       "is_featured": true
     },
     {
-      "id": "00000000-0000-4000-a000-000000000010",
+      "id": "d7802188-4591-4089-a223-7bf4238a4ac6",
       "slug": "airtable",
       "name": "Airtable",
       "description": "Spreadsheet-database hybrid for flexible data management",
@@ -440,7 +440,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000011",
+      "id": "7fd72b14-09b4-4ea9-ba2d-4662cc543892",
       "slug": "supabase",
       "name": "Supabase",
       "description": "Open source Firebase alternative with Postgres database",
@@ -467,7 +467,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000012",
+      "id": "5c5f6567-8e80-4d7f-b3ed-53ddabc23a16",
       "slug": "postgres",
       "name": "PostgreSQL",
       "description": "Powerful open source relational database",
@@ -493,7 +493,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000013",
+      "id": "b9723603-bf8d-4213-b60e-c8e49b377f25",
       "slug": "mongodb",
       "name": "MongoDB",
       "description": "Document database for modern applications",
@@ -519,7 +519,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000014",
+      "id": "de72f490-2b50-4809-b137-41a384ca1ad5",
       "slug": "okta",
       "name": "Okta",
       "description": "Identity and access management platform",
@@ -546,7 +546,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000015",
+      "id": "00000000-0000-4000-a000-000000000021",
       "slug": "auth0",
       "name": "Auth0",
       "description": "Authentication and authorization platform",
@@ -574,7 +574,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000016",
+      "id": "00000000-0000-4000-a000-000000000022",
       "slug": "filesystem",
       "name": "Filesystem",
       "description": "Local file system access for reading and writing files",
@@ -600,7 +600,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000017",
+      "id": "00000000-0000-4000-a000-000000000023",
       "slug": "shopify",
       "name": "Shopify",
       "description": "E-commerce platform for online stores",
@@ -627,7 +627,7 @@
       "is_featured": false
     },
     {
-      "id": "00000000-0000-4000-a000-000000000018",
+      "id": "00000000-0000-4000-a000-000000000024",
       "slug": "vercel",
       "name": "Vercel",
       "description": "Frontend cloud platform for deployments",
