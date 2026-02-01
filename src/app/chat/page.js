@@ -711,9 +711,22 @@ function ChatInterface({
     const result = handleSlashKeyDown(e);
     if (result === "handled") return;
     if (result?.type === "select") {
-      const newValue = selectTool(result.tool);
-      setInput(newValue);
+      handleSelectItem(result.tool);
       return;
+    }
+  };
+
+  // Handle selecting a tool or routine from autocomplete
+  const handleSelectItem = (item) => {
+    const result = selectTool(item);
+
+    if (result.type === 'routine') {
+      // Routine selected - insert the prompt directly
+      setInput(result.prompt);
+      toast.success(`Routine "${result.name}" loaded`);
+    } else {
+      // Tool selected - insert the slash command
+      setInput(result.command);
     }
   };
 
@@ -892,9 +905,8 @@ function ChatInterface({
               <SlashCommandAutocomplete
                 suggestions={suggestions}
                 selectedIndex={selectedIndex}
-                onSelect={(tool) => {
-                  const newValue = selectTool(tool);
-                  setInput(newValue);
+                onSelect={(item) => {
+                  handleSelectItem(item);
                   inputRef.current?.focus();
                 }}
                 onHover={() => {}}

@@ -49,6 +49,7 @@ export function detectPagination(response, originalInput = {}) {
     detectOffsetPagination,
     detectLinkPagination,
     detectTokenPagination,
+    detectRawArrayPagination, // Fallback for APIs that just return arrays
   ];
 
   for (const detect of strategies) {
@@ -290,6 +291,58 @@ function detectTokenPagination(response, dataArray, originalInput) {
     cursor: token,
     nextParams: { [tokenParam]: token },
     limit: originalInput.limit || originalInput.maxResults || dataArray.length,
+  };
+}
+
+/**
+ * Raw array pagination (fallback for APIs that strip metadata)
+ * Detects pagination when:
+ * - Response is just an array
+ * - Input had a limit param
+ * - Array length equals the limit (suggesting more data exists)
+ */
+function detectRawArrayPagination(response, dataArray, originalInput) {
+  // Only trigger if we have a limit in the input
+  const limitFields = ['limit', 'per_page', 'perPage', 'page_size', 'pageSize', 'count', 'max_results', 'maxResults'];
+  let limit = null;
+  let limitParam = 'limit';
+
+  for (const field of limitFields) {
+    if (typeof originalInput[field] === 'number' && originalInput[field] > 0) {
+      limit = originalInput[field];
+      limitParam = field;
+      break;
+    }
+  }
+
+  // No limit param = can't paginate
+  if (!limit) return null;
+
+  // If we got fewer items than the limit, we've reached the end
+  if (dataArray.length < limit) return null;
+
+  // Try to find an ID in the last item for cursor-based pagination
+  const lastItem = dataArray[dataArray.length - 1];
+  let cursor = null;
+  let cursorParam = 'starting_after'; // Stripe-style default
+
+  if (lastItem && typeof lastItem === 'object') {
+    // Try common ID field names
+    cursor = lastItem.id || lastItem._id || lastItem.uuid || lastItem.cursor;
+  }
+
+  // If no ID found, we can't cursor-paginate
+  if (!cursor) return null;
+
+  return {
+    type: 'raw-array',
+    hasMore: true, // Assume there's more since we hit the limit
+    totalCount: null, // Unknown
+    cursor,
+    cursorParam,
+    nextParams: { [cursorParam]: cursor },
+    limit,
+    limitParam,
   };
 }
 

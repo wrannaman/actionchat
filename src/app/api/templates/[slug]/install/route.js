@@ -141,7 +141,7 @@ export async function POST(request, { params }) {
         }
       } else {
         // stdio MCP - use npm package
-        mcpServerUri = template.mcp_package?.startsWith('@')
+        let baseCommand = template.mcp_package?.startsWith('@')
           ? `npx -y ${template.mcp_package}`
           : template.mcp_package;
 
@@ -152,6 +152,16 @@ export async function POST(request, { params }) {
             mcpEnv[template.auth_config.env_var] = credentials[credField];
           }
         }
+
+        // Handle permission modes (e.g., PostgreSQL read-only)
+        const permissionMode = credentials[template.auth_config?.permission_field];
+        if (permissionMode === 'read_only') {
+          // For postgres MCP, pass connection string as arg with read-only
+          // The MCP server uses the connection string from env var
+          mcpEnv['POSTGRES_READ_ONLY'] = 'true';
+        }
+
+        mcpServerUri = baseCommand;
       }
 
       try {
@@ -195,7 +205,8 @@ export async function POST(request, { params }) {
           ? `npx -y ${template.mcp_package}`
           : template.mcp_package;
         sourceMcpTransport = 'stdio';
-        sourceMcpEnv = mcpEnv;
+        // Persist the environment including permission mode flags
+        sourceMcpEnv = { ...mcpEnv };
       }
     }
 

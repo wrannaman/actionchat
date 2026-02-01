@@ -457,7 +457,18 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
   // Initialize pagination on first render with output
   useEffect(() => {
     if (hasOutput && Object.keys(pages).length === 0) {
+      // Debug: log the actual data structure
+      console.log('[Pagination] Checking data:', {
+        actualData,
+        hasMore: actualData?.has_more,
+        dataLength: actualData?.data?.length,
+        isArray: Array.isArray(actualData),
+        keys: actualData && typeof actualData === 'object' ? Object.keys(actualData) : null,
+      });
+
       const pagination = detectPagination(actualData, input);
+      console.log('[Pagination] Detection result:', pagination);
+
       if (pagination) {
         setPaginationMeta(pagination);
         // Extract just the data array for the page cache
@@ -836,25 +847,6 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
                     }`}
                   >
                     {viewMode === "all" ? "View pages" : `View all (${totalLoadedItems})`}
-                  </button>
-                )}
-
-                {paginationMeta.hasMore && (
-                  <button
-                    onClick={fetchAllPages}
-                    disabled={isLoadingPage}
-                    className="flex items-center gap-1 px-2 py-1 text-[10px] rounded text-white/40 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
-                    title="Load all pages"
-                  >
-                    {isLoadingPage ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <ChevronsRight className="h-3 w-3" />
-                    )}
-                    <span>Load all</span>
-                    {paginationMeta.totalCount && (
-                      <span className="text-white/30">({paginationMeta.totalCount})</span>
-                    )}
                   </button>
                 )}
               </div>

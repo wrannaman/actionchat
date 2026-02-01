@@ -74,9 +74,22 @@ function AssistantMessage({ parts, onApprove, onReject }) {
     return true;
   });
 
-  // Group consecutive tool calls with same toolName into batches
+  // Group consecutive tool calls with same toolName into batches (only if 2+ calls)
   const groupedParts = [];
   let currentToolGroup = null;
+
+  // Helper to flush current group
+  const flushGroup = () => {
+    if (!currentToolGroup) return;
+    // Only create a group if there are 2+ parts, otherwise push as single part
+    if (currentToolGroup.parts.length >= 2) {
+      groupedParts.push(currentToolGroup);
+    } else {
+      // Single part - push it directly (not as group)
+      groupedParts.push(currentToolGroup.parts[0]);
+    }
+    currentToolGroup = null;
+  };
 
   for (const part of dedupedParts) {
     const isToolPart = part.type?.startsWith("tool-") || part.type === "dynamic-tool";
@@ -89,13 +102,10 @@ function AssistantMessage({ parts, onApprove, onReject }) {
       currentToolGroup.parts.push(part);
     } else {
       // Flush current group if exists
-      if (currentToolGroup) {
-        groupedParts.push(currentToolGroup);
-        currentToolGroup = null;
-      }
+      flushGroup();
 
       if (isToolPart && hasOutput) {
-        // Start new group
+        // Start new potential group
         currentToolGroup = { type: "tool-group", toolName, parts: [part] };
       } else {
         // Non-groupable part
@@ -104,9 +114,7 @@ function AssistantMessage({ parts, onApprove, onReject }) {
     }
   }
   // Flush final group
-  if (currentToolGroup) {
-    groupedParts.push(currentToolGroup);
-  }
+  flushGroup();
 
   // Check if we have any text content
   const hasText = dedupedParts.some(p => p.type === 'text' && p.text?.trim());

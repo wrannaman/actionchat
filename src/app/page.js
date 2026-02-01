@@ -222,16 +222,16 @@ function HomeContent() {
             </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 leading-[1.1]">
-              Your APIs + Your Favorite Tools.<br />
-              <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">One Chat Interface.</em>
+              The Last Internal Tool<br />
+              <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">You'll Ever Build.</em>
             </h1>
 
             <p className="text-xl text-white/60 mb-4 max-w-2xl mx-auto">
-              Connect Stripe, Slack, and Linear alongside your internal APIs. Build powerful routines in seconds—no code required.
+              Stop building admin dashboards. Connect your APIs and let your team chat with them—refunds, user migrations, billing fixes, all without engineering tickets.
             </p>
 
             <p className="text-lg text-white/40 mb-8 max-w-xl mx-auto">
-              Install any MCP server. Chat with any OpenAPI spec. Your endpoints, your auth, your data sovereignty.
+              Self-host in 2 minutes. Works with any OpenAPI spec or MCP server. Your auth, your data, your infrastructure.
             </p>
           </div>
         </section>
@@ -324,23 +324,33 @@ function HomeContent() {
         {/* For Who */}
         <section className="container mx-auto px-6 py-16 border-t border-white/5">
           <div className="max-w-4xl mx-auto">
-            <h2 className="text-2xl md:text-3xl font-black mb-12 text-center">Built For</h2>
-            <div className="grid md:grid-cols-3 gap-6">
-              <PersonaCard
-                title="Support Teams"
-                description="Move users between orgs, merge accounts, fix billing mismatches—without an engineering ticket. Turn 45-minute escalations into 30-second conversations."
-                icon={MessageSquare}
-              />
-              <PersonaCard
-                title="Ops Teams"
-                description="One chat interface for all your tools. No more switching between 10 different dashboards."
-                icon={Server}
-              />
-              <PersonaCard
-                title="Founders"
-                description="AI productivity without the setup. Get value in 30 seconds, not 30 days."
-                icon={Zap}
-              />
+            <h2 className="text-2xl md:text-3xl font-black mb-4 text-center">Two Problems. One Solution.</h2>
+            <p className="text-white/50 text-center mb-12 max-w-2xl mx-auto">Different pain, same fix.</p>
+            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              <div className="p-8 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 border border-blue-500/20 rounded-2xl">
+                <div className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-4">For CTOs & Engineering Leads</div>
+                <h3 className="text-white font-black text-xl mb-3">Stop building internal tools.</h3>
+                <p className="text-white/60 mb-4">
+                  Your team shouldn't spend 6 weeks building an admin dashboard that 3 people use. Self-host ActionChat, connect your APIs, and ship the internal tooling backlog in an afternoon.
+                </p>
+                <ul className="space-y-2 text-sm text-white/50">
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> Self-host in 2 minutes</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> Zero code required</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> Your auth, your permissions, your audit log</li>
+                </ul>
+              </div>
+              <div className="p-8 bg-gradient-to-br from-purple-500/5 to-pink-500/5 border border-purple-500/20 rounded-2xl">
+                <div className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-4">For Support & Ops Teams</div>
+                <h3 className="text-white font-black text-xl mb-3">Stop waiting on engineering.</h3>
+                <p className="text-white/60 mb-4">
+                  That "move user to another org" request shouldn't be a 2-day engineering ticket. Handle it yourself in 30 seconds—with the same permissions and audit trail.
+                </p>
+                <ul className="space-y-2 text-sm text-white/50">
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> No engineering tickets</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> Confirmation before destructive actions</li>
+                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-green-400" /> Works with tools you already know</li>
+                </ul>
+              </div>
             </div>
           </div>
         </section>
@@ -367,10 +377,10 @@ function HomeContent() {
         <section className="container mx-auto px-6 py-20 border-t border-white/5">
           <div className="max-w-2xl mx-auto text-center">
             <h2 className="text-2xl md:text-3xl font-black mb-4">
-              Ready to do things in 30 seconds?
+              Ship your internal tooling backlog today.
             </h2>
             <p className="text-white/50 mb-8">
-              Free forever for self-hosted. No credit card required.
+              Self-host free forever. Your support team will thank you.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/auth/login">

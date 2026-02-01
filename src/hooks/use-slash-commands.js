@@ -11,11 +11,14 @@ import {
 
 /**
  * Hook to manage slash command state and autocomplete.
+ * Supports both tools (API endpoints) and routines (saved prompts).
+ *
  * @param {object} options
  * @param {string} options.agentId - Agent ID to fetch tools for
  */
 export function useSlashCommands({ agentId } = {}) {
   const [tools, setTools] = useState([]);
+  const [routines, setRoutines] = useState([]);
   const [loadingTools, setLoadingTools] = useState(false);
   const [error, setError] = useState(null);
 
@@ -25,33 +28,55 @@ export function useSlashCommands({ agentId } = {}) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedTool, setSelectedTool] = useState(null);
 
-  // Fetch tools on mount
+  // Fetch tools and routines on mount
   useEffect(() => {
     if (!agentId) return;
 
-    const fetchTools = async () => {
+    const fetchData = async () => {
       setLoadingTools(true);
       try {
-        const res = await fetch(`/api/workspace/tools?agent_id=${agentId}`);
-        if (res.ok) {
-          const data = await res.json();
+        // Fetch tools and routines in parallel
+        const [toolsRes, routinesRes] = await Promise.all([
+          fetch(`/api/workspace/tools?agent_id=${agentId}`),
+          fetch('/api/routines'),
+        ]);
+
+        if (toolsRes.ok) {
+          const data = await toolsRes.json();
           setTools(data.tools || []);
         }
+
+        if (routinesRes.ok) {
+          const data = await routinesRes.json();
+          // Convert routines to a tool-like format for autocomplete
+          const routineItems = (data.routines || []).map(r => ({
+            ...r,
+            _isRoutine: true,
+            name: r.name,
+            description: r.description || r.prompt?.slice(0, 100),
+            method: 'ROUTINE',
+          }));
+          setRoutines(routineItems);
+        }
       } catch (err) {
-        console.error("[useSlashCommands] Error fetching tools:", err);
+        console.error("[useSlashCommands] Error fetching:", err);
         setError(err.message);
       } finally {
         setLoadingTools(false);
       }
     };
 
-    fetchTools();
+    fetchData();
   }, [agentId]);
+
+  // Combined items for autocomplete (routines first, then tools)
+  const allItems = [...routines, ...tools];
 
   // Handle input change - update autocomplete
   const handleInputChange = useCallback((input) => {
     if (isSlashCommand(input)) {
-      const matches = getAutocompleteSuggestions(input, tools, 5);
+      // Get suggestions from both routines and tools
+      const matches = getAutocompleteSuggestions(input, allItems, 8);
       setSuggestions(matches);
       setShowAutocomplete(matches.length > 0);
       setSelectedIndex(0);
@@ -69,7 +94,7 @@ export function useSlashCommands({ agentId } = {}) {
       setSuggestions([]);
       setSelectedTool(null);
     }
-  }, [tools]);
+  }, [allItems]);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback((e) => {
@@ -103,11 +128,23 @@ export function useSlashCommands({ agentId } = {}) {
     return null;
   }, [showAutocomplete, suggestions, selectedIndex]);
 
-  // Select a tool from autocomplete
-  const selectTool = useCallback((tool) => {
-    setSelectedTool(tool);
+  // Select a tool or routine from autocomplete
+  const selectTool = useCallback((item) => {
+    setSelectedTool(item);
     setShowAutocomplete(false);
-    return `/${tool.name.replace(/\([^)]*\)/g, "").trim().toLowerCase().replace(/\s+/g, "-")} `;
+
+    // If it's a routine, return the prompt directly
+    if (item._isRoutine) {
+      // Track usage
+      fetch(`/api/routines/${item.id}`, { method: 'POST' }).catch(() => {});
+      return { type: 'routine', prompt: item.prompt, name: item.name };
+    }
+
+    // For tools, return the slash command format
+    return {
+      type: 'tool',
+      command: `/${item.name.replace(/\([^)]*\)/g, "").trim().toLowerCase().replace(/\s+/g, "-")} `
+    };
   }, []);
 
   // Parse and execute a slash command
@@ -122,6 +159,7 @@ export function useSlashCommands({ agentId } = {}) {
 
   return {
     tools,
+    routines,
     loadingTools,
     error,
 

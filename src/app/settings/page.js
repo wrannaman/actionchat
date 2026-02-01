@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Check, Eye, EyeOff } from "lucide-react";
+import { Loader2, Check, Eye, EyeOff, Zap, Trash2, Share2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { getProviders, getModelsForProvider } from "@/lib/ai";
 
@@ -37,9 +37,87 @@ function SettingsContent() {
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [keyStatus, setKeyStatus] = useState({ openai: false, anthropic: false, google: false });
 
+  // Routines state
+  const [routines, setRoutines] = useState([]);
+  const [loadingRoutines, setLoadingRoutines] = useState(true);
+  const [newRoutineName, setNewRoutineName] = useState("");
+  const [newRoutinePrompt, setNewRoutinePrompt] = useState("");
+  const [showNewRoutineForm, setShowNewRoutineForm] = useState(false);
+
   useEffect(() => {
     fetchSettings();
+    fetchRoutines();
   }, []);
+
+  const fetchRoutines = async () => {
+    try {
+      const res = await fetch("/api/routines");
+      if (res.ok) {
+        const data = await res.json();
+        setRoutines(data.routines || []);
+      }
+    } catch {
+      console.error("Failed to fetch routines");
+    } finally {
+      setLoadingRoutines(false);
+    }
+  };
+
+  const createRoutine = async () => {
+    if (!newRoutineName.trim() || !newRoutinePrompt.trim()) return;
+
+    try {
+      const res = await fetch("/api/routines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newRoutineName.trim(),
+          prompt: newRoutinePrompt.trim(),
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setRoutines(prev => [data.routine, ...prev]);
+        setNewRoutineName("");
+        setNewRoutinePrompt("");
+        setShowNewRoutineForm(false);
+        toast.success("Routine created!");
+      }
+    } catch {
+      toast.error("Failed to create routine");
+    }
+  };
+
+  const deleteRoutine = async (id) => {
+    try {
+      const res = await fetch(`/api/routines/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setRoutines(prev => prev.filter(r => r.id !== id));
+        toast.success("Routine deleted");
+      }
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  const toggleShare = async (routine) => {
+    try {
+      const res = await fetch(`/api/routines/${routine.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_shared: !routine.is_shared }),
+      });
+      if (res.ok) {
+        setRoutines(prev =>
+          prev.map(r => r.id === routine.id ? { ...r, is_shared: !r.is_shared } : r)
+        );
+        toast.success(routine.is_shared ? "Routine unshared" : "Routine shared with team");
+      }
+    } catch {
+      toast.error("Failed to update");
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -147,9 +225,132 @@ function SettingsContent() {
       <AuthenticatedNav />
 
       <main className="container mx-auto px-6 py-12">
-        <div className="max-w-md mx-auto">
-          <h1 className="text-3xl font-black mb-8">Settings</h1>
+        <div className="max-w-xl mx-auto space-y-8">
+          <h1 className="text-3xl font-black">Settings</h1>
 
+          {/* Routines Section */}
+          <Card className="bg-white/5 border-white/10">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-cyan-400" />
+                  Routines
+                </CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowNewRoutineForm(!showNewRoutineForm)}
+                  className="text-cyan-400 hover:text-cyan-300"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  New
+                </Button>
+              </div>
+              <p className="text-sm text-white/40">
+                Saved prompts you can trigger with <code className="text-cyan-400">/</code> in chat
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* New Routine Form */}
+              {showNewRoutineForm && (
+                <div className="p-3 bg-white/5 rounded-lg border border-cyan-500/20 space-y-3">
+                  <Input
+                    value={newRoutineName}
+                    onChange={(e) => setNewRoutineName(e.target.value)}
+                    placeholder="Routine name (e.g., Refund Customer)"
+                    className="bg-white/5 border-white/10"
+                  />
+                  <textarea
+                    value={newRoutinePrompt}
+                    onChange={(e) => setNewRoutinePrompt(e.target.value)}
+                    placeholder="Prompt template (e.g., Refund the customer with email [email] for $[amount])"
+                    rows={3}
+                    className="w-full bg-white/5 border border-white/10 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowNewRoutineForm(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={createRoutine}
+                      disabled={!newRoutineName.trim() || !newRoutinePrompt.trim()}
+                      className="bg-cyan-500 hover:bg-cyan-400"
+                    >
+                      Create
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Routines List */}
+              {loadingRoutines ? (
+                <div className="flex justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-white/30" />
+                </div>
+              ) : routines.length === 0 ? (
+                <div className="text-center py-6 text-white/30 text-sm">
+                  No routines yet. Create one to save time on repeated tasks.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {routines.map((routine) => (
+                    <div
+                      key={routine.id}
+                      className="p-3 bg-white/5 rounded-lg border border-white/10 hover:border-white/20 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-white/90">{routine.name}</span>
+                            {routine.is_shared && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded">
+                                Shared
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-white/40 mt-1 truncate font-mono">
+                            {routine.prompt}
+                          </p>
+                          {routine.use_count > 0 && (
+                            <p className="text-[10px] text-white/20 mt-1">
+                              Used {routine.use_count} time{routine.use_count !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleShare(routine)}
+                            className="h-7 w-7 p-0 text-white/30 hover:text-blue-400"
+                            title={routine.is_shared ? "Unshare" : "Share with team"}
+                          >
+                            <Share2 className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteRoutine(routine.id)}
+                            className="h-7 w-7 p-0 text-white/30 hover:text-red-400"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* AI Configuration */}
           <Card className="bg-white/5 border-white/10">
             <CardHeader>
               <CardTitle>AI Configuration</CardTitle>

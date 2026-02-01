@@ -10,6 +10,7 @@ const METHOD_COLORS = {
   PATCH: "border-orange-500/30 text-orange-400 bg-orange-500/10",
   DELETE: "border-red-500/30 text-red-400 bg-red-500/10",
   MCP: "border-purple-500/30 text-purple-400 bg-purple-500/10",
+  ROUTINE: "border-cyan-500/30 text-cyan-400 bg-cyan-500/10",
 };
 
 export function SlashCommandAutocomplete({
@@ -22,64 +23,80 @@ export function SlashCommandAutocomplete({
 
   return (
     <div className="absolute bottom-full left-0 right-0 mb-2 bg-[#0d0d12] border border-white/10 rounded-lg shadow-xl overflow-hidden z-50 max-h-64 overflow-y-auto">
-      {suggestions.map((tool, index) => {
+      {suggestions.map((item, index) => {
+        const isRoutine = item._isRoutine;
+
         // Extract method from tool name or use default
-        const methodMatch = tool.name?.match(/\((GET|POST|PUT|PATCH|DELETE|MCP)\s/);
-        const method = methodMatch?.[1] || tool.method || "GET";
+        const methodMatch = item.name?.match(/\((GET|POST|PUT|PATCH|DELETE|MCP)\s/);
+        const method = isRoutine ? "ROUTINE" : (methodMatch?.[1] || item.method || "GET");
         const methodColor = METHOD_COLORS[method] || METHOD_COLORS.GET;
 
         // Clean name for display
-        const displayName = tool.name
-          ?.replace(/\([^)]*\)/, "")
-          .trim() || tool.path || "Unknown";
+        const displayName = isRoutine
+          ? item.name
+          : (item.name?.replace(/\([^)]*\)/, "").trim() || item.path || "Unknown");
 
-        // Get parameter hints
-        const paramHints = getParameterHints(tool);
+        // Get parameter hints (only for tools)
+        const paramHints = isRoutine ? null : getParameterHints(item);
 
         return (
           <div
-            key={tool.id}
+            key={item.id}
             className={`px-3 py-2 cursor-pointer transition-colors ${
               index === selectedIndex
                 ? "bg-blue-500/20 border-l-2 border-blue-500"
                 : "hover:bg-white/5 border-l-2 border-transparent"
             }`}
-            onClick={() => onSelect(tool)}
+            onClick={() => onSelect(item)}
             onMouseEnter={() => onHover?.(index)}
           >
             <div className="flex items-center gap-2">
-              {/* Method badge */}
+              {/* Method/Type badge */}
               <Badge
                 variant="outline"
                 className={`text-[9px] px-1 py-0 font-bold shrink-0 ${methodColor}`}
               >
-                {method}
+                {isRoutine ? "⚡" : method}
               </Badge>
 
-              {/* Tool name */}
+              {/* Item name */}
               <span className="text-white/90 text-sm font-medium">
                 {displayName}
               </span>
 
-              {/* Risk indicator */}
-              {tool.requires_confirmation && (
+              {/* Risk indicator for tools */}
+              {!isRoutine && item.requires_confirmation && (
                 <span className="text-yellow-400 text-[10px]" title="Requires confirmation">
+                  ⚠
+                </span>
+              )}
 
+              {/* Shared indicator for routines */}
+              {isRoutine && item.is_shared && (
+                <span className="text-white/30 text-[10px]" title="Shared in org">
+                  👥
                 </span>
               )}
             </div>
 
             {/* Description */}
-            {tool.description && (
+            {item.description && (
               <div className="text-white/40 text-xs mt-0.5 truncate ml-9">
-                {tool.description}
+                {item.description}
               </div>
             )}
 
-            {/* Parameter hints */}
+            {/* Parameter hints (tools only) */}
             {paramHints && (
               <div className="text-cyan-400/60 text-[10px] font-mono mt-1 ml-9">
                 {paramHints}
+              </div>
+            )}
+
+            {/* Routine prompt preview */}
+            {isRoutine && item.prompt && (
+              <div className="text-cyan-400/40 text-[10px] font-mono mt-1 ml-9 truncate">
+                → {item.prompt.slice(0, 60)}{item.prompt.length > 60 ? "..." : ""}
               </div>
             )}
           </div>
