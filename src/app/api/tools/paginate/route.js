@@ -42,13 +42,13 @@ export async function POST(request) {
       return NextResponse.json({ error: 'toolId is required' }, { status: 400 });
     }
 
-    // Fetch the tool
+    // Fetch the tool with source details
     const { data: tool, error: toolError } = await supabase
       .from('tools')
       .select(`
         *,
         api_sources (
-          id, name, base_url, auth_type, auth_config,
+          id, name, base_url, auth_type, auth_config, source_type,
           mcp_server_uri, mcp_transport, mcp_env
         )
       `)
@@ -88,32 +88,36 @@ export async function POST(request) {
       );
     }
 
-    // Execute the tool
-    const startTime = Date.now();
+    // Source already has source_type from the query
+    const expandedSource = source;
 
+    // Execute the tool
     const result = await executeTool({
       tool,
-      input: input || {},
-      source,
-      credentials: credential.credentials,
+      source: expandedSource,
+      args: input || {},
+      userCredentials: credential.credentials,
+      userId: user.id,
     });
 
-    const duration = Date.now() - startTime;
-
-    // Return the result with metadata
+    // Return the result with metadata in the format expected by the UI
     return NextResponse.json({
       ok: true,
-      output: result,
-      _actionchat: {
-        tool_id: toolId,
-        tool_name: tool.name,
-        source_id: source.id,
-        source_name: source.name,
-        method: tool.method || 'MCP',
-        url: tool.path ? `${source.base_url}${tool.path}` : `mcp://${tool.mcp_tool_name || tool.name}`,
-        duration_ms: duration,
-        response_body: result,
-        paginated: true,
+      output: {
+        _actionchat: {
+          tool_id: toolId,
+          tool_name: tool.name,
+          source_id: source.id,
+          source_name: source.name,
+          method: tool.method || 'MCP',
+          url: result.url,
+          response_status: result.response_status,
+          response_body: result.response_body,
+          duration_ms: result.duration_ms,
+          error_message: result.error_message,
+          paginated: true,
+        },
+        result: result.response_body,
       },
     });
   } catch (error) {

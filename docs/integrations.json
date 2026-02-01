@@ -461,8 +461,9 @@
       "id": "5c5f6567-8e80-4d7f-b3ed-53ddabc23a16",
       "slug": "postgres",
       "name": "PostgreSQL",
-      "description": "Powerful open source relational database",
+      "description": "Query your own Postgres database with natural language. Supports read-only or full access.",
       "category": "database",
+      "tier": 1,
       "type": "mcp",
       "mcp_package": "@modelcontextprotocol/server-postgres",
       "auth_type": "none",
@@ -470,18 +471,26 @@
         "env_var": "POSTGRES_URL",
         "credential_field": "connection_string",
         "credential_label": "Connection String",
-        "credential_placeholder": "postgresql://user:pass@host:5432/db"
+        "credential_placeholder": "postgresql://user:pass@host:5432/db",
+        "has_permission_mode": true,
+        "permission_field": "permission_mode",
+        "permission_label": "Access Level",
+        "permission_options": [
+          { "value": "read_only", "label": "Read Only", "description": "SELECT queries only - safe for production databases" },
+          { "value": "read_write", "label": "Read & Write", "description": "Full access including INSERT, UPDATE, DELETE" }
+        ],
+        "permission_default": "read_only"
       },
       "logo_url": "/integrations/postgres.svg",
       "docs_url": "https://www.postgresql.org/docs/",
       "use_cases": [
-        "Query tables",
-        "Inspect schema",
-        "Run SQL",
-        "List databases",
-        "Check indexes"
+        "Query tables with natural language",
+        "Explore your schema",
+        "Run complex JOINs",
+        "Analyze data patterns",
+        "Generate reports"
       ],
-      "is_featured": false
+      "is_featured": true
     },
     {
       "id": "b9723603-bf8d-4213-b60e-c8e49b377f25",

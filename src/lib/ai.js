@@ -165,7 +165,7 @@ export async function chat({
   messages,
   tools,
   temperature = 0.1,
-  maxSteps = 5,
+  maxSteps = 15, // Agentic: allow multiple rounds of tool calls for best answer
   onStepFinish,
   onFinish,
 }) {

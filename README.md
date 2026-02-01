@@ -24,7 +24,7 @@ User: "Y"
 ## Quick Start
 
 ```bash
-git clone https://github.com/actionchat/actionchat.git
+git clone https://github.com/wrannaman/actionchat.git
 cd actionchat
 cp env.example .env
 # Add your Supabase + LLM API keys to .env

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   ChevronDown,
@@ -455,7 +455,7 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
   const actualData = output?._actionchat?.response_body ?? output?.result ?? output;
 
   // Initialize pagination on first render with output
-  useMemo(() => {
+  useEffect(() => {
     if (hasOutput && Object.keys(pages).length === 0) {
       const pagination = detectPagination(actualData, input);
       if (pagination) {
@@ -465,7 +465,7 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
         setPages({ 1: dataArray });
       }
     }
-  }, [hasOutput, actualData, input]);
+  }, [hasOutput]); // Only run on initial output, not on every data change
 
   // Get current display data
   const currentPageData = useMemo(() => {

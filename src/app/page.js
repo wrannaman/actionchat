@@ -23,39 +23,35 @@ import { useState } from "react";
 
 // Integration catalog data (subset for landing page)
 const FEATURED_USE_CASES = [
-  { action: "Move user to another org", integration: "Your API", category: "support", icon: Users },
   { action: "Refund a customer", integration: "Stripe", category: "payments", icon: CreditCard },
+  { action: "Move user to another org", integration: "Your API", category: "support", icon: Users },
+  { action: "Cancel subscription", integration: "Stripe", category: "payments", icon: CreditCard },
   { action: "Merge duplicate accounts", integration: "Your API", category: "support", icon: Users },
-  { action: "Send an SMS alert", integration: "Twilio", category: "communication", icon: MessageSquare },
-  { action: "Create a GitHub issue", integration: "GitHub", category: "devops", icon: GitBranch },
-  { action: "Post to Slack", integration: "Slack", category: "communication", icon: MessageSquare },
-  { action: "Trigger a PagerDuty alert", integration: "PagerDuty", category: "devops", icon: AlertTriangle },
-  { action: "Update a Linear ticket", integration: "Linear", category: "project_management", icon: Ticket },
-  { action: "Create a Jira ticket", integration: "Jira", category: "project_management", icon: Ticket },
-  { action: "Send an email", integration: "SendGrid", category: "communication", icon: MessageSquare },
-  { action: "Create a contact", integration: "HubSpot", category: "crm", icon: Users },
-  { action: "Fix billing mismatch", integration: "Your API", category: "support", icon: CreditCard },
+  { action: "Update billing info", integration: "Stripe", category: "payments", icon: CreditCard },
+  { action: "Reset user password", integration: "Your API", category: "support", icon: Users },
+  { action: "Extend trial period", integration: "Your API", category: "support", icon: Zap },
+  { action: "Apply discount code", integration: "Stripe", category: "payments", icon: CreditCard },
+  { action: "Transfer seat license", integration: "Your API", category: "support", icon: Users },
+  { action: "Update user permissions", integration: "Your API", category: "support", icon: Shield },
+  { action: "Send invoice", integration: "Stripe", category: "payments", icon: CreditCard },
+  { action: "Look up order status", integration: "Your API", category: "support", icon: Search },
 ];
 
 const INTEGRATION_LOGOS = [
   { name: "Stripe", logo: "/integrations/stripe.svg" },
-  { name: "Twilio", logo: "/integrations/twilio.svg" },
-  { name: "GitHub", logo: "/integrations/github.svg" },
-  { name: "Slack", logo: "/integrations/slack.svg" },
-  { name: "PagerDuty", logo: "/integrations/pagerduty.svg" },
-  { name: "Linear", logo: "/integrations/linear.svg" },
+  { name: "Intercom", logo: "/integrations/intercom.svg" },
+  { name: "Zendesk", logo: "/integrations/zendesk.svg" },
   { name: "HubSpot", logo: "/integrations/hubspot.svg" },
+  { name: "Slack", logo: "/integrations/slack.svg" },
+  { name: "SendGrid", logo: "/integrations/sendgrid.svg" },
+  { name: "Twilio", logo: "/integrations/twilio.svg" },
   { name: "Notion", logo: "/integrations/notion.svg" },
 ];
 
 const CATEGORIES = [
-  { id: "all", name: "All", count: 24 },
-  { id: "payments", name: "Payments", count: 2 },
-  { id: "communication", name: "Communication", count: 4 },
-  { id: "devops", name: "DevOps", count: 5 },
-  { id: "project_management", name: "Project Management", count: 2 },
-  { id: "support", name: "Support", count: 3 },
-  { id: "database", name: "Database", count: 3 },
+  { id: "all", name: "All", count: 12 },
+  { id: "support", name: "Customer Support", count: 6 },
+  { id: "payments", name: "Billing & Payments", count: 5 },
 ];
 
 function TargetIcon({ className }) {
@@ -194,12 +190,18 @@ function HomeContent() {
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm text-white/60">
             <Link href="/explore" className="hover:text-white transition-colors">Explore</Link>
-            <Link href="https://github.com/actionchat/actionchat" target="_blank" className="hover:text-white transition-colors flex items-center gap-1">
+            <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white transition-colors flex items-center gap-1">
               <GitBranch className="w-4 h-4" />
               GitHub
             </Link>
           </nav>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Link href="https://github.com/wrannaman/actionchat" target="_blank">
+              <Button variant="outline" className="bg-transparent border-white/20 text-white hover:bg-white/10">
+                <GitBranch className="mr-2 h-4 w-4" />
+                GitHub
+              </Button>
+            </Link>
             <Link href="/auth/login">
               <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white font-bold">
                 Get Started
@@ -216,19 +218,20 @@ function HomeContent() {
           <div className="max-w-4xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-cyan-400 text-sm mb-6">
               <Zap className="w-4 h-4" />
-              50+ Things You Can Do in 30 Seconds
+              Free & Open Source
             </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 leading-[1.1]">
-              AI That Actually <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">Does</em> Things
+              Your APIs + Your Favorite Tools.<br />
+              <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">One Chat Interface.</em>
             </h1>
 
             <p className="text-xl text-white/60 mb-4 max-w-2xl mx-auto">
-              No install. No code. Just say what you want done.
+              Connect Stripe, Slack, and Linear alongside your internal APIs. Build powerful routines in seconds—no code required.
             </p>
 
             <p className="text-lg text-white/40 mb-8 max-w-xl mx-auto">
-              Connect your APIs in 30 seconds. Then talk to them like a human.
+              Install any MCP server. Chat with any OpenAPI spec. Your endpoints, your auth, your data sovereignty.
             </p>
           </div>
         </section>
@@ -402,7 +405,7 @@ function HomeContent() {
           </div>
           <div className="flex gap-6">
             <Link href="/explore" className="hover:text-white/50 transition-colors">Explore</Link>
-            <Link href="https://github.com/actionchat/actionchat" target="_blank" className="hover:text-white/50 transition-colors">GitHub</Link>
+            <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white/50 transition-colors">GitHub</Link>
             <Link href="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
             <Link href="/tos" className="hover:text-white/50 transition-colors">Terms</Link>
           </div>

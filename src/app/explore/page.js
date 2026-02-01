@@ -383,7 +383,7 @@ export default function ExplorePage() {
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm text-white/60">
             <Link href="/explore" className="text-white font-medium">Explore</Link>
-            <Link href="https://github.com/actionchat/actionchat" target="_blank" className="hover:text-white transition-colors flex items-center gap-1">
+            <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white transition-colors flex items-center gap-1">
               <GitBranch className="w-4 h-4" />
               GitHub
             </Link>
@@ -494,7 +494,7 @@ export default function ExplorePage() {
             Get your integration in front of thousands of users.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link href="https://github.com/actionchat/actionchat" target="_blank">
+            <Link href="https://github.com/wrannaman/actionchat" target="_blank">
               <Button className="bg-white/10 hover:bg-white/15 text-white border border-white/10">
                 <GitBranch className="mr-2 h-4 w-4" />
                 Submit via GitHub
@@ -519,7 +519,7 @@ export default function ExplorePage() {
           </div>
           <div className="flex gap-6">
             <Link href="/" className="hover:text-white/50 transition-colors">Home</Link>
-            <Link href="https://github.com/actionchat/actionchat" target="_blank" className="hover:text-white/50 transition-colors">GitHub</Link>
+            <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white/50 transition-colors">GitHub</Link>
             <Link href="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
             <Link href="/tos" className="hover:text-white/50 transition-colors">Terms</Link>
           </div>
