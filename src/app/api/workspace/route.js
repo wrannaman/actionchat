@@ -43,7 +43,7 @@ export async function GET() {
           description: 'Default workspace agent',
           system_prompt: DEFAULT_SYSTEM_PROMPT,
           model_provider: 'openai',
-          model_name: 'gpt-4o',
+          model_name: 'gpt-5-mini',
           temperature: 0.1,
         })
         .select('id, name, system_prompt, model_provider, model_name, temperature')
@@ -64,6 +64,7 @@ export async function GET() {
     const hasApiKey = !!(
       orgSettings.openai_api_key ||
       orgSettings.anthropic_api_key ||
+      orgSettings.google_generative_ai_api_key ||
       orgSettings.ollama_base_url
     );
 
@@ -136,7 +137,7 @@ export async function PATCH(request) {
     const orgId = await getUserOrgId(supabase, cookieOrgId);
 
     const body = await request.json();
-    const { openai_api_key, openai_base_url, anthropic_api_key, ollama_base_url } = body;
+    const { openai_api_key, openai_base_url, anthropic_api_key, google_generative_ai_api_key, ollama_base_url } = body;
 
     // Get current settings
     const { data: org } = await supabase
@@ -157,6 +158,9 @@ export async function PATCH(request) {
     }
     if (anthropic_api_key !== undefined) {
       newSettings.anthropic_api_key = anthropic_api_key || null;
+    }
+    if (google_generative_ai_api_key !== undefined) {
+      newSettings.google_generative_ai_api_key = google_generative_ai_api_key || null;
     }
     if (ollama_base_url !== undefined) {
       newSettings.ollama_base_url = ollama_base_url || null;

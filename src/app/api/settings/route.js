@@ -10,7 +10,10 @@ export const dynamic = 'force-dynamic';
 const ALLOWED_KEYS = [
   'openai_api_key',
   'anthropic_api_key',
+  'google_generative_ai_api_key',
   'ollama_base_url',
+  'default_provider',
+  'default_model',
 ];
 
 /**
@@ -68,10 +71,13 @@ export async function GET() {
     const maskedSettings = {
       openai_api_key: maskKey(settings.openai_api_key),
       anthropic_api_key: maskKey(settings.anthropic_api_key),
+      google_generative_ai_api_key: maskKey(settings.google_generative_ai_api_key),
       ollama_base_url: settings.ollama_base_url || '',
-      // Booleans indicating if keys are set
       has_openai_key: !!settings.openai_api_key,
       has_anthropic_key: !!settings.anthropic_api_key,
+      has_google_key: !!settings.google_generative_ai_api_key,
+      default_provider: settings.default_provider || '',
+      default_model: settings.default_model || '',
     };
 
     return NextResponse.json({

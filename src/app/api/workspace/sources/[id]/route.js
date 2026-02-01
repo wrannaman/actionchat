@@ -52,7 +52,7 @@ export async function PUT(request, { params }) {
           description: 'Default workspace agent',
           system_prompt: 'You are a helpful operations assistant.',
           model_provider: 'openai',
-          model_name: 'gpt-4o',
+          model_name: 'gpt-5-mini',
           temperature: 0.1,
         })
         .select('id')

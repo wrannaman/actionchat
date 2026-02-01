@@ -83,7 +83,9 @@ CREATE TABLE source_templates (
   source_type TEXT NOT NULL CHECK (source_type IN ('openapi', 'mcp')),
   spec_url TEXT,                          -- for OpenAPI: URL to fetch spec
   spec_content JSONB,                     -- cached spec
-  mcp_package TEXT,                       -- for MCP: npm package or path
+  mcp_package TEXT,                       -- for stdio MCP: npm package or path
+  mcp_server_url TEXT,                    -- for HTTP MCP: remote server URL
+  mcp_transport TEXT DEFAULT 'stdio',     -- 'stdio' or 'http'
 
   -- Auth configuration
   auth_type TEXT DEFAULT 'api_key',

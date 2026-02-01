@@ -1,60 +1,63 @@
-import { streamText, convertToModelMessages } from 'ai';
+/**
+ * POST /api/embed/chat — Public streaming chat for embed widgets.
+ *
+ * - Authenticates via embed token (not user session)
+ * - Only exposes safe (read-only) tools
+ * - Adds CORS headers for cross-origin embedding
+ */
+
 import { createClient } from '@/utils/supabase/server';
-import { getModelForAgent } from '@/lib/ai-provider';
+import { getModelForAgent, chat, toStreamResponse } from '@/lib/ai';
+import { loadAgentTools } from '@/lib/chat';
 import { convertToolsToAISDK } from '@/lib/tools-to-ai-sdk';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-/**
- * POST /api/embed/chat — Public streaming chat endpoint for embed widgets.
- * Authenticates via embed token instead of user session.
- * Only allows safe (auto-execute) tools — no dangerous operations from embeds.
- */
 export async function POST(request) {
+  const supabase = await createClient();
+  const origin = request.headers.get('origin');
+
   try {
-    const supabase = await createClient();
-    const body = await request.json();
-    const { messages, embedToken } = body;
+    // ─────────────────────────────────────────────────────────────────────────
+    // 1. PARSE & VALIDATE
+    // ─────────────────────────────────────────────────────────────────────────
+    const { messages, embedToken } = await request.json();
 
     if (!embedToken) {
-      return new Response(JSON.stringify({ error: 'embedToken is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return jsonError('embedToken is required', 400);
     }
 
-    // 1. Load embed config by token
-    const { data: config, error: configError } = await supabase
+    // ─────────────────────────────────────────────────────────────────────────
+    // 2. LOAD EMBED CONFIG
+    // ─────────────────────────────────────────────────────────────────────────
+    const { data: config } = await supabase
       .from('embed_configs')
       .select('id, agent_id, org_id, allowed_origins, settings, is_active')
       .eq('embed_token', embedToken)
       .eq('is_active', true)
       .single();
 
-    if (configError || !config) {
-      return new Response(JSON.stringify({ error: 'Widget not found or inactive' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!config) {
+      return jsonError('Widget not found or inactive', 404);
     }
 
-    // 2. Origin check
-    const origin = request.headers.get('origin');
+    // ─────────────────────────────────────────────────────────────────────────
+    // 3. CHECK ORIGIN
+    // ─────────────────────────────────────────────────────────────────────────
     if (config.allowed_origins.length > 0 && origin) {
       const allowed = config.allowed_origins.some(
-        (o) => o === '*' || o === origin || origin.endsWith(o.replace('*.', '.'))
+        o => o === '*' || o === origin || origin.endsWith(o.replace('*.', '.'))
       );
       if (!allowed) {
-        return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
-          status: 403,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return jsonError('Origin not allowed', 403);
       }
     }
 
-    // 3. Load agent
-    const { data: agent, error: agentError } = await supabase
+    // ─────────────────────────────────────────────────────────────────────────
+    // 4. LOAD AGENT
+    // ─────────────────────────────────────────────────────────────────────────
+    const { data: agent } = await supabase
       .from('agents')
       .select('*')
       .eq('id', config.agent_id)
@@ -62,99 +65,77 @@ export async function POST(request) {
       .eq('is_active', true)
       .single();
 
-    if (agentError || !agent) {
-      return new Response(
-        JSON.stringify({ error: 'Agent not found or inactive' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
-      );
+    if (!agent) {
+      return jsonError('Agent not found or inactive', 404);
     }
 
-    // 4. Load org settings (LLM API keys)
+    // ─────────────────────────────────────────────────────────────────────────
+    // 5. GET MODEL
+    // ─────────────────────────────────────────────────────────────────────────
     const { data: org } = await supabase
       .from('org')
       .select('settings')
       .eq('id', config.org_id)
       .single();
 
-    const orgSettings = org?.settings || {};
-
-    // 5. Get LLM model
     let model;
     try {
-      model = getModelForAgent(agent, orgSettings);
+      model = getModelForAgent(agent, org?.settings || {});
     } catch (err) {
-      return new Response(
-        JSON.stringify({ error: 'LLM not configured' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      return jsonError('LLM not configured', 400);
     }
 
-    // 6. Load tools — embed widgets only get safe (read-only) tools
+    // ─────────────────────────────────────────────────────────────────────────
+    // 6. LOAD SAFE TOOLS ONLY
+    // ─────────────────────────────────────────────────────────────────────────
     const { data: toolRows } = await supabase.rpc('get_agent_tools', {
       agent_uuid: config.agent_id,
     });
 
-    // Filter to safe tools only for embed
-    const safeTools = (toolRows || []).filter(
+    // Filter to safe tools only (no destructive operations from embeds)
+    const safeToolRows = (toolRows || []).filter(
       t => t.risk_level === 'safe' && !t.requires_confirmation
     );
 
-    // 7. Load source auth configs
-    const sourceNames = [...new Set(safeTools.map(t => t.source_name))];
+    // Load sources for safe tools
+    const sourceIds = [...new Set(safeToolRows.map(t => t.source_id))];
     let sourceMap = new Map();
 
-    if (sourceNames.length > 0) {
-      const { data: agentSourceLinks } = await supabase
-        .from('agent_sources')
-        .select('source_id, permission')
-        .eq('agent_id', config.agent_id);
+    if (sourceIds.length > 0) {
+      const { data: sources } = await supabase
+        .from('api_sources')
+        .select('id, name, base_url, auth_type, auth_config, source_type, mcp_server_uri, mcp_transport, mcp_env')
+        .in('id', sourceIds);
 
-      if (agentSourceLinks?.length > 0) {
-        const sourceIds = agentSourceLinks.map(l => l.source_id);
-        const { data: sources } = await supabase
-          .from('api_sources')
-          .select('id, name, base_url, auth_type, auth_config')
-          .in('id', sourceIds);
-
-        if (sources) {
-          for (const source of sources) {
-            sourceMap.set(source.name, source);
-          }
-        }
-      }
+      sourceMap = new Map(sources?.map(s => [s.name, s]) || []);
     }
 
-    // 8. Convert safe tools to AI SDK format
-    const aiTools = convertToolsToAISDK(safeTools, {
+    const tools = convertToolsToAISDK(safeToolRows, {
       sourceMap,
-      userAuthToken: null, // No user auth in embeds
+      userCredentialsMap: new Map(), // No user credentials in embeds
     });
 
-    // 9. Build system prompt
-    const systemParts = [
-      `You are "${agent.name}", an AI assistant embedded on an external website.`,
-    ];
-    if (agent.system_prompt) {
-      systemParts.push(agent.system_prompt);
-    }
-    if (safeTools.length > 0) {
-      systemParts.push('\nYou have access to read-only API tools. You cannot perform destructive actions from this widget.');
-    }
-    systemParts.push('\nBe concise and helpful. This is an embedded widget — keep responses short.');
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. BUILD SYSTEM PROMPT
+    // ─────────────────────────────────────────────────────────────────────────
+    const systemPrompt = buildEmbedPrompt(agent, safeToolRows);
 
-    // 10. Stream response
-    const hasTools = Object.keys(aiTools).length > 0;
+    // ─────────────────────────────────────────────────────────────────────────
+    // 8. STREAM RESPONSE
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log('[EMBED]', agent.model_provider, agent.model_name, '|', Object.keys(tools).length, 'tools');
 
-    const result = streamText({
+    const result = await chat({
       model,
-      system: systemParts.join('\n'),
-      messages: convertToModelMessages(messages),
-      tools: hasTools ? aiTools : undefined,
-      maxSteps: hasTools ? 3 : 1,
+      modelId: agent.model_name,
+      system: systemPrompt,
+      messages,
+      tools,
       temperature: agent.temperature ?? 0.1,
+      maxSteps: 3, // Limit steps for embeds
     });
 
-    const response = result.toUIMessageStreamResponse();
+    const response = toStreamResponse(result, { messages });
 
     // Add CORS headers
     if (origin) {
@@ -164,12 +145,10 @@ export async function POST(request) {
     }
 
     return response;
+
   } catch (error) {
-    console.error('[EMBED CHAT] Error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Chat failed' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    console.error('[EMBED] Error:', error);
+    return jsonError(error.message || 'Chat failed', 500);
   }
 }
 
@@ -186,4 +165,33 @@ export async function OPTIONS(request) {
       'Access-Control-Allow-Headers': 'Content-Type',
     },
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function jsonError(message, status) {
+  return new Response(
+    JSON.stringify({ error: message }),
+    { status, headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
+function buildEmbedPrompt(agent, toolRows) {
+  const parts = [
+    `You are "${agent.name}", an AI assistant embedded on an external website.`,
+  ];
+
+  if (agent.system_prompt) {
+    parts.push('', agent.system_prompt);
+  }
+
+  if (toolRows.length > 0) {
+    parts.push('', 'You have access to read-only API tools. You cannot perform destructive actions from this widget.');
+  }
+
+  parts.push('', 'Be concise and helpful. This is an embedded widget — keep responses short.');
+
+  return parts.join('\n');
 }

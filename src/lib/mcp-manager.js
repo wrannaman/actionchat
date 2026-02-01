@@ -6,7 +6,7 @@
  *
  * Supports two transport modes:
  * - stdio: Spawns a local process and communicates via stdin/stdout
- * - http: Connects to an HTTP-based MCP server (SSE)
+ * - http: Connects to an HTTP-based MCP server (Streamable HTTP)
  */
 
 import { spawn } from 'child_process';
@@ -19,10 +19,205 @@ const activeServers = new Map();
 let requestId = 0;
 
 /**
- * MCP Server Connection
- * Handles communication with a single MCP server instance
+ * HTTP MCP Connection
+ * Handles communication with a remote HTTP-based MCP server
  */
-class MCPConnection extends EventEmitter {
+class HTTPMCPConnection extends EventEmitter {
+  constructor(sourceId, config) {
+    super();
+    this.sourceId = sourceId;
+    this.config = config;
+    this.isConnected = false;
+    this.capabilities = null;
+    this.serverInfo = null;
+    this.sessionId = null;
+  }
+
+  /**
+   * Connect to HTTP MCP server
+   */
+  async connect() {
+    if (this.isConnected) return;
+
+    const { mcp_server_uri, mcp_auth_token } = this.config;
+
+    // Initialize the connection
+    const result = await this.sendRequest('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {
+        roots: { listChanged: true },
+      },
+      clientInfo: {
+        name: 'ActionChat',
+        version: '1.0.0',
+      },
+    });
+
+    this.isConnected = true;
+    this.capabilities = result.capabilities;
+    this.serverInfo = result.serverInfo;
+
+    // Send initialized notification
+    await this.sendNotification('notifications/initialized', {});
+
+    return result;
+  }
+
+  /**
+   * Send a JSON-RPC request over HTTP
+   */
+  async sendRequest(method, params = {}) {
+    const { mcp_server_uri, mcp_auth_token } = this.config;
+    const id = ++requestId;
+
+    const request = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params,
+    };
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+
+    // Add auth token if available
+    if (mcp_auth_token) {
+      headers['Authorization'] = `Bearer ${mcp_auth_token}`;
+    }
+
+    // Add session ID if we have one
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    try {
+      const response = await fetch(mcp_server_uri, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request),
+      });
+
+      // Capture session ID from response headers
+      const newSessionId = response.headers.get('Mcp-Session-Id');
+      if (newSessionId) {
+        this.sessionId = newSessionId;
+      }
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.error) {
+        throw new Error(result.error.message || 'MCP error');
+      }
+
+      return result.result;
+    } catch (error) {
+      console.error(`[MCP HTTP ${this.sourceId}] Request failed:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send a notification (no response expected)
+   */
+  async sendNotification(method, params = {}) {
+    const { mcp_server_uri, mcp_auth_token } = this.config;
+
+    const notification = {
+      jsonrpc: '2.0',
+      method,
+      params,
+    };
+
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+
+    if (mcp_auth_token) {
+      headers['Authorization'] = `Bearer ${mcp_auth_token}`;
+    }
+
+    if (this.sessionId) {
+      headers['Mcp-Session-Id'] = this.sessionId;
+    }
+
+    try {
+      await fetch(mcp_server_uri, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(notification),
+      });
+    } catch (error) {
+      console.error(`[MCP HTTP ${this.sourceId}] Notification failed:`, error);
+    }
+  }
+
+  /**
+   * List available tools
+   */
+  async listTools() {
+    const result = await this.sendRequest('tools/list', {});
+    return result.tools || [];
+  }
+
+  /**
+   * Call a tool
+   */
+  async callTool(name, args = {}) {
+    return await this.sendRequest('tools/call', {
+      name,
+      arguments: args,
+    });
+  }
+
+  /**
+   * List resources (if supported)
+   */
+  async listResources() {
+    if (!this.capabilities?.resources) {
+      return [];
+    }
+    const result = await this.sendRequest('resources/list', {});
+    return result.resources || [];
+  }
+
+  /**
+   * Read a resource
+   */
+  async readResource(uri) {
+    return await this.sendRequest('resources/read', { uri });
+  }
+
+  /**
+   * List prompts (if supported)
+   */
+  async listPrompts() {
+    if (!this.capabilities?.prompts) {
+      return [];
+    }
+    const result = await this.sendRequest('prompts/list', {});
+    return result.prompts || [];
+  }
+
+  /**
+   * Disconnect
+   */
+  disconnect() {
+    this.isConnected = false;
+    this.sessionId = null;
+  }
+}
+
+/**
+ * Stdio MCP Server Connection
+ * Handles communication with a local MCP server process via stdin/stdout
+ */
+class StdioMCPConnection extends EventEmitter {
   constructor(sourceId, config) {
     super();
     this.sourceId = sourceId;
@@ -41,11 +236,7 @@ class MCPConnection extends EventEmitter {
   async connect() {
     if (this.isConnected) return;
 
-    const { mcp_server_uri, mcp_transport, mcp_env } = this.config;
-
-    if (mcp_transport === 'http') {
-      throw new Error('HTTP transport not yet implemented');
-    }
+    const { mcp_server_uri, mcp_env } = this.config;
 
     // Parse the server URI as a command
     const parts = mcp_server_uri.split(' ');
@@ -267,6 +458,7 @@ class MCPConnection extends EventEmitter {
 
 /**
  * Get or create an MCP connection for a source
+ * Automatically selects HTTP or Stdio transport based on config
  */
 export async function getConnection(sourceId, config) {
   if (activeServers.has(sourceId)) {
@@ -278,7 +470,17 @@ export async function getConnection(sourceId, config) {
     activeServers.delete(sourceId);
   }
 
-  const connection = new MCPConnection(sourceId, config);
+  // Choose transport based on config
+  const transport = config.mcp_transport || 'stdio';
+  const isHttpUrl = config.mcp_server_uri?.startsWith('http://') || config.mcp_server_uri?.startsWith('https://');
+
+  let connection;
+  if (transport === 'http' || isHttpUrl) {
+    connection = new HTTPMCPConnection(sourceId, config);
+  } else {
+    connection = new StdioMCPConnection(sourceId, config);
+  }
+
   await connection.connect();
   activeServers.set(sourceId, connection);
 

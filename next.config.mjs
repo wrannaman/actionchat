@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "standalone",
+  // Auto-enable standalone for Docker builds
+  ...(process.env.STANDALONE === "true" && { output: "standalone" }),
   allowedDevOrigins: ["localhost"],
 };
 

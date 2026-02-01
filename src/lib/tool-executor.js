@@ -151,13 +151,21 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
   const startTime = Date.now();
   const toolName = tool.mcp_tool_name || tool.path;
 
-  // Build MCP config, injecting user credentials into env if provided
+  // Determine auth token for HTTP MCP
+  let mcpAuthToken = null;
+  if (source.mcp_transport === 'http') {
+    // For HTTP MCP with bearer auth, use the stored token
+    mcpAuthToken = userCredentials?.token || userCredentials?.api_key;
+  }
+
+  // Build MCP config, injecting user credentials
   const mcpConfig = {
     mcp_server_uri: source.mcp_server_uri,
     mcp_transport: source.mcp_transport || 'stdio',
+    mcp_auth_token: mcpAuthToken,
     mcp_env: {
       ...(source.mcp_env || {}),
-      // Inject credentials as environment variables if provided
+      // Inject credentials as environment variables if provided (for stdio MCP)
       ...(userCredentials?.env_vars || {}),
     },
   };

@@ -1,16 +1,21 @@
--- actionchat.io — Drop all tables and functions
--- Run this to reset the schema completely
+-- ============================================================================
+-- ActionChat — Drop all tables and functions
+-- Run this to reset the schema completely before running 001.sql
+-- ============================================================================
 
+-- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS
   api_keys,
   embed_configs,
   action_log,
   messages,
   chats,
+  routines,
   member_agent_access,
   agent_sources,
   agents,
   tools,
+  user_api_credentials,
   api_sources,
   source_templates,
   org_invites,
@@ -18,8 +23,13 @@ DROP TABLE IF EXISTS
   org
 CASCADE;
 
+-- Drop all functions
 DROP FUNCTION IF EXISTS set_updated_at CASCADE;
 DROP FUNCTION IF EXISTS enforce_action_status CASCADE;
+DROP FUNCTION IF EXISTS get_user_org_ids CASCADE;
+DROP FUNCTION IF EXISTS get_user_admin_org_ids CASCADE;
+DROP FUNCTION IF EXISTS get_user_owner_org_ids CASCADE;
+DROP FUNCTION IF EXISTS get_user_agent_ids CASCADE;
 DROP FUNCTION IF EXISTS ensure_current_user_org CASCADE;
 DROP FUNCTION IF EXISTS my_organizations CASCADE;
 DROP FUNCTION IF EXISTS get_my_org_id CASCADE;

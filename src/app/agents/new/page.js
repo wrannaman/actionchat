@@ -25,6 +25,14 @@ import Link from "next/link";
 const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful operations assistant. Be concise. Always include IDs in your responses.";
 
+// Default models per provider
+const DEFAULT_MODELS = {
+  openai: "gpt-5-mini",
+  anthropic: "claude-sonnet-4.5",
+  google: "gemini-3-flash",
+  ollama: "llama3.2",
+};
+
 function NewAgentContent() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -35,16 +43,43 @@ function NewAgentContent() {
   const [form, setForm] = useState({
     description: "",
     system_prompt: DEFAULT_SYSTEM_PROMPT,
-    model_provider: "openai",
-    model_name: "gpt-4o",
+    model_provider: "",
+    model_name: "",
     temperature: 0.1,
   });
   const [selectedSources, setSelectedSources] = useState({});
   const [nameError, setNameError] = useState("");
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
     fetchSources();
+    fetchDefaultProvider();
   }, []);
+
+  const fetchDefaultProvider = async () => {
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        const defaultProvider = data.settings?.default_provider || "openai";
+        const defaultModel = data.settings?.default_model || DEFAULT_MODELS[defaultProvider] || "gpt-5-mini";
+        setForm((prev) => ({
+          ...prev,
+          model_provider: defaultProvider,
+          model_name: defaultModel,
+        }));
+      }
+    } catch {
+      // Fall back to openai
+      setForm((prev) => ({
+        ...prev,
+        model_provider: "openai",
+        model_name: "gpt-5-mini",
+      }));
+    } finally {
+      setSettingsLoaded(true);
+    }
+  };
 
   const fetchSources = async () => {
     try {
@@ -84,18 +119,30 @@ function NewAgentContent() {
 
   const MODEL_OPTIONS = {
     openai: [
-      { value: "gpt-4o", label: "GPT-4o" },
-      { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-      { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+      { value: "gpt-5.2", label: "GPT-5.2" },
+      { value: "gpt-5.2-pro", label: "GPT-5.2 Pro" },
+      { value: "gpt-5-mini", label: "GPT-5 Mini" },
+      { value: "gpt-5-nano", label: "GPT-5 Nano" },
     ],
     anthropic: [
-      { value: "claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
-      { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
+      { value: "claude-sonnet-4.5", label: "Claude Sonnet 4.5" },
+      { value: "claude-opus-4.5", label: "Claude Opus 4.5" },
+      { value: "claude-haiku-4.5", label: "Claude Haiku 4.5" },
+    ],
+    google: [
+      { value: "gemini-3-pro", label: "Gemini 3 Pro" },
+      { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
+      { value: "gemini-3-flash", label: "Gemini 3 Flash" },
     ],
     ollama: [
+      { value: "llama3.2", label: "Llama 3.2" },
+      { value: "llama3.1", label: "Llama 3.1" },
       { value: "llama3", label: "Llama 3" },
       { value: "mistral", label: "Mistral" },
+      { value: "mixtral", label: "Mixtral" },
+      { value: "qwen2.5", label: "Qwen 2.5" },
       { value: "codellama", label: "Code Llama" },
+      { value: "deepseek-r1", label: "DeepSeek R1" },
     ],
   };
 
@@ -323,6 +370,7 @@ function NewAgentContent() {
                       <SelectContent>
                         <SelectItem value="openai">OpenAI</SelectItem>
                         <SelectItem value="anthropic">Anthropic</SelectItem>
+                        <SelectItem value="google">Google (Gemini)</SelectItem>
                         <SelectItem value="ollama">Ollama</SelectItem>
                       </SelectContent>
                     </Select>

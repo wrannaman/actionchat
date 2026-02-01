@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "updated_at": "2025-01-31",
+  "version": "2.0.0",
+  "updated_at": "2026-01-31",
   "integrations": [
     {
       "id": "2e059b2b-9cef-4440-bf7f-be6d6eeb9160",
@@ -8,24 +8,24 @@
       "name": "Stripe",
       "description": "Payment processing platform for internet businesses",
       "category": "payments",
-      "type": "openapi",
-      "spec_url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+      "tier": 1,
+      "type": "mcp",
+      "mcp_server_url": "https://mcp.stripe.com",
+      "mcp_transport": "http",
       "auth_type": "bearer",
       "auth_config": {
-        "header": "Authorization",
-        "prefix": "Bearer",
-        "credential_field": "token",
+        "credential_field": "api_key",
         "credential_label": "Secret Key",
-        "credential_placeholder": "sk_live_..."
+        "credential_placeholder": "sk_test_... or sk_live_..."
       },
       "logo_url": "/integrations/stripe.svg",
-      "docs_url": "https://stripe.com/docs/api",
+      "docs_url": "https://docs.stripe.com/mcp",
       "use_cases": [
         "Refund a customer",
-        "Create a charge",
+        "Create invoice",
         "Cancel subscription",
-        "List recent payments",
-        "Create invoice"
+        "List customers",
+        "Search documentation"
       ],
       "is_featured": true
     },
@@ -199,19 +199,16 @@
       "name": "Linear",
       "description": "Issue tracking and project management for software teams",
       "category": "project_management",
-      "type": "openapi",
-      "spec_url": null,
-      "base_url": "https://api.linear.app",
-      "auth_type": "bearer",
+      "tier": 1,
+      "type": "mcp",
+      "mcp_server_url": "https://mcp.linear.app/sse",
+      "mcp_transport": "http",
+      "auth_type": "oauth",
       "auth_config": {
-        "header": "Authorization",
-        "prefix": "Bearer",
-        "credential_field": "token",
-        "credential_label": "API Key",
-        "credential_placeholder": "lin_api_..."
+        "provider": "linear"
       },
       "logo_url": "/integrations/linear.svg",
-      "docs_url": "https://developers.linear.app/docs/graphql/working-with-the-graphql-api",
+      "docs_url": "https://linear.app/docs/mcp",
       "use_cases": [
         "Create an issue",
         "Update ticket status",
@@ -227,18 +224,16 @@
       "name": "Jira",
       "description": "Issue and project tracking for agile teams",
       "category": "project_management",
-      "type": "openapi",
-      "spec_url": "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
-      "auth_type": "basic",
+      "tier": 1,
+      "type": "mcp",
+      "mcp_server_url": "https://mcp.atlassian.com",
+      "mcp_transport": "http",
+      "auth_type": "oauth",
       "auth_config": {
-        "credential_fields": ["username", "password"],
-        "username_label": "Email",
-        "username_placeholder": "your@email.com",
-        "password_label": "API Token",
-        "password_placeholder": "Your Jira API token"
+        "provider": "atlassian"
       },
       "logo_url": "/integrations/jira.svg",
-      "docs_url": "https://developer.atlassian.com/cloud/jira/platform/rest/v3",
+      "docs_url": "https://www.atlassian.com/blog/announcements/remote-mcp-server",
       "use_cases": [
         "Create a ticket",
         "Transition issue status",
@@ -246,7 +241,7 @@
         "Assign to user",
         "Update priority"
       ],
-      "is_featured": false
+      "is_featured": true
     },
     {
       "id": "67f9d620-694d-4d5e-8f28-95b1942925fe",
@@ -281,19 +276,16 @@
       "name": "HubSpot",
       "description": "CRM and marketing automation platform",
       "category": "crm",
-      "type": "openapi",
-      "spec_url": null,
-      "base_url": "https://api.hubapi.com",
-      "auth_type": "bearer",
+      "tier": 1,
+      "type": "mcp",
+      "mcp_server_url": "https://mcp.hubspot.com",
+      "mcp_transport": "http",
+      "auth_type": "oauth",
       "auth_config": {
-        "header": "Authorization",
-        "prefix": "Bearer",
-        "credential_field": "token",
-        "credential_label": "Private App Token",
-        "credential_placeholder": "pat-..."
+        "provider": "hubspot"
       },
       "logo_url": "/integrations/hubspot.svg",
-      "docs_url": "https://developers.hubspot.com/docs/api/overview",
+      "docs_url": "https://developers.hubspot.com/mcp",
       "use_cases": [
         "Create a contact",
         "Update a deal",
@@ -301,7 +293,7 @@
         "Log an activity",
         "Create a company"
       ],
-      "is_featured": false
+      "is_featured": true
     },
     {
       "id": "1c26d33f-bf9a-4049-8534-64d89261bbeb",
@@ -391,17 +383,16 @@
       "name": "Notion",
       "description": "All-in-one workspace for notes, docs, and databases",
       "category": "productivity",
+      "tier": 1,
       "type": "mcp",
-      "mcp_package": "@notionhq/notion-mcp-server",
-      "auth_type": "api_key",
+      "mcp_server_url": "https://mcp.notion.com/mcp",
+      "mcp_transport": "http",
+      "auth_type": "oauth",
       "auth_config": {
-        "env_var": "NOTION_API_KEY",
-        "credential_field": "api_key",
-        "credential_label": "Integration Token",
-        "credential_placeholder": "secret_..."
+        "provider": "notion"
       },
       "logo_url": "/integrations/notion.svg",
-      "docs_url": "https://developers.notion.com/docs",
+      "docs_url": "https://developers.notion.com/docs/mcp",
       "use_cases": [
         "Create a page",
         "Update a database",

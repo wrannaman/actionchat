@@ -56,6 +56,7 @@ import { SaveIndicator } from "@/components/ui/save-indicator";
 const PROVIDER_LABELS = {
   openai: "OpenAI",
   anthropic: "Anthropic",
+  google: "Google (Gemini)",
   ollama: "Ollama",
 };
 
@@ -627,6 +628,7 @@ function AgentDetailContent({ params }) {
                           <SelectContent>
                             <SelectItem value="openai">OpenAI</SelectItem>
                             <SelectItem value="anthropic">Anthropic</SelectItem>
+                            <SelectItem value="google">Google (Gemini)</SelectItem>
                             <SelectItem value="ollama">Ollama</SelectItem>
                           </SelectContent>
                         </Select>

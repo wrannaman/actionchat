@@ -14,6 +14,7 @@ import Link from "next/link";
 const PROVIDER_LABELS = {
   openai: "OpenAI",
   anthropic: "Anthropic",
+  google: "Google (Gemini)",
   ollama: "Ollama",
 };
 

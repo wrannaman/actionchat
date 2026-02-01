@@ -44,8 +44,8 @@ const INTEGRATION_LOGOS = [
   { name: "Slack", logo: "/integrations/slack.svg" },
   { name: "PagerDuty", logo: "/integrations/pagerduty.svg" },
   { name: "Linear", logo: "/integrations/linear.svg" },
+  { name: "HubSpot", logo: "/integrations/hubspot.svg" },
   { name: "Notion", logo: "/integrations/notion.svg" },
-  { name: "SendGrid", logo: "/integrations/sendgrid.svg" },
 ];
 
 const CATEGORIES = [
@@ -132,10 +132,12 @@ function LiveDemo() {
 
 function IntegrationLogo({ name, logo }) {
   return (
-    <div className="flex items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl hover:border-white/10 transition-colors group">
-      <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center">
-        <span className="text-white/60 text-xs font-bold">{name.charAt(0)}</span>
-      </div>
+    <div className="flex items-center justify-center p-4 bg-white/[0.02] border border-white/5 rounded-xl hover:border-white/10 transition-colors group" title={name}>
+      <img 
+        src={logo} 
+        alt={name} 
+        className="w-8 h-8 object-contain opacity-70 group-hover:opacity-100 transition-opacity"
+      />
     </div>
   );
 }

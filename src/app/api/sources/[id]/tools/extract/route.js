@@ -75,7 +75,7 @@ export async function POST(request, { params }) {
 
     // Use AI to extract tool definition
     const { object: tool } = await generateObject({
-      model: openai('gpt-4o-mini', { apiKey }),
+      model: openai('gpt-5-mini', { apiKey }),
       schema: ToolSchema,
       prompt: `Extract an API endpoint definition from the following input. The input might be:
 - A cURL command

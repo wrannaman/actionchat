@@ -23,19 +23,20 @@ export function ChatMessage({ message, onApprove, onReject }) {
   const { role } = message;
   const parts = normalizeParts(message);
 
-  // Debug: log message structure to understand tool call duplication
-  if (role === "assistant" && parts.some(p => p.type?.startsWith("tool-"))) {
-    console.log("[ChatMessage] Assistant with tools:", {
+  // Debug: only log assistant messages with content (reduce noise)
+  if (role === 'assistant' && parts.length > 0) {
+    console.log("[ChatMessage] Assistant:", {
       id: message.id,
       partsCount: parts.length,
-      toolParts: parts.filter(p => p.type?.startsWith("tool-")).map(p => ({
+      parts: parts.map(p => ({
         type: p.type,
-        toolCallId: p.toolCallId,
+        text: p.text?.slice(0, 50),
         toolName: p.toolName,
         state: p.state,
       })),
     });
   }
+
 
   if (role === "user") {
     return <UserMessage parts={parts} />;
@@ -88,6 +89,13 @@ function AssistantMessage({ parts, onApprove, onReject }) {
     return true;
   });
 
+  // Check if we have any text content
+  const hasText = dedupedParts.some(p => p.type === 'text' && p.text?.trim());
+  const hasToolResults = dedupedParts.some(p =>
+    (p.type?.startsWith('tool-') || p.type === 'dynamic-tool') &&
+    p.state === 'output-available'
+  );
+
   return (
     <div className="space-y-2">
       {dedupedParts.map((part, i) => (
@@ -98,6 +106,12 @@ function AssistantMessage({ parts, onApprove, onReject }) {
           onReject={onReject}
         />
       ))}
+      {/* Show a subtle message if there's only tool output and no explanation */}
+      {!hasText && hasToolResults && (
+        <p className="text-white/30 text-xs italic mt-2">
+          ↑ API response above
+        </p>
+      )}
     </div>
   );
 }

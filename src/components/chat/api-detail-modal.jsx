@@ -99,6 +99,7 @@ export function ApiDetailModal({
   };
 
   const needsAuth = source?.auth_type && source.auth_type !== "none" && source.auth_type !== "passthrough";
+  const isMcp = source?.source_type === "mcp";
 
   // Group tools by tag or method
   const groupedTools = tools.reduce((acc, tool) => {
@@ -162,7 +163,7 @@ export function ApiDetailModal({
             </div>
           ) : tools.length === 0 ? (
             <div className="text-center py-8 text-white/40">
-              No endpoints found
+              No {isMcp ? "tools" : "endpoints"} found
             </div>
           ) : (
             Object.entries(groupedTools).map(([tag, tagTools]) => (
@@ -212,20 +213,22 @@ export function ApiDetailModal({
         {/* Footer */}
         <div className="flex justify-between items-center pt-2 border-t border-white/5">
           <span className="text-xs text-white/30">
-            {tools.length} endpoint{tools.length === 1 ? "" : "s"} available
+            {tools.length} {isMcp ? "tool" : "endpoint"}{tools.length === 1 ? "" : "s"} available
           </span>
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleSync}
-              disabled={syncing || loading}
-              className="text-white/50 hover:text-white"
-              title="Re-fetch from OpenAPI spec"
-            >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Syncing..." : "Sync"}
-            </Button>
+            {!isMcp && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSync}
+                disabled={syncing || loading}
+                className="text-white/50 hover:text-white"
+                title="Re-fetch from OpenAPI spec"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1.5 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "Syncing..." : "Sync"}
+              </Button>
+            )}
             <Button
               variant="ghost"
               onClick={() => onOpenChange(false)}

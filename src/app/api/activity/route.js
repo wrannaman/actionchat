@@ -33,7 +33,7 @@ export async function GET(request) {
 
     let query = supabase
       .from('action_log')
-      .select('id, agent_id, user_id, tool_name, method, url, status, response_status, duration_ms, requires_confirmation, confirmed_by, error_message, created_at, confirmed_at, executed_at, completed_at')
+      .select('id, agent_id, user_id, tool_id, tool_name, method, url, request_body, status, response_status, duration_ms, requires_confirmation, confirmed_by, error_message, created_at, confirmed_at, executed_at, completed_at')
       .eq('org_id', orgId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);

@@ -125,16 +125,32 @@ export async function POST(request, { params }) {
         }
       }
     } else if (template.type === 'mcp') {
-      // For MCP, we need to connect and fetch tools
-      const mcpServerUri = template.mcp_package.startsWith('@')
-        ? `npx -y ${template.mcp_package}`
-        : template.mcp_package;
+      // Determine MCP transport and server URI
+      const isHttpMcp = template.mcp_transport === 'http' || template.mcp_server_url;
+      let mcpServerUri;
+      let mcpAuthToken = null;
 
-      // Build MCP environment from credentials
-      if (template.auth_config?.env_var) {
-        const credField = template.auth_config.credential_field;
-        if (credentials[credField]) {
-          mcpEnv[template.auth_config.env_var] = credentials[credField];
+      if (isHttpMcp) {
+        // HTTP MCP - use remote server URL
+        mcpServerUri = template.mcp_server_url;
+
+        // For bearer auth, pass the API key as auth token
+        if (template.auth_type === 'bearer') {
+          const credField = template.auth_config?.credential_field || 'api_key';
+          mcpAuthToken = credentials[credField];
+        }
+      } else {
+        // stdio MCP - use npm package
+        mcpServerUri = template.mcp_package?.startsWith('@')
+          ? `npx -y ${template.mcp_package}`
+          : template.mcp_package;
+
+        // Build MCP environment from credentials
+        if (template.auth_config?.env_var) {
+          const credField = template.auth_config.credential_field;
+          if (credentials[credField]) {
+            mcpEnv[template.auth_config.env_var] = credentials[credField];
+          }
         }
       }
 
@@ -142,8 +158,9 @@ export async function POST(request, { params }) {
         // Temporarily connect to list tools
         const mcpConfig = {
           mcp_server_uri: mcpServerUri,
-          mcp_transport: 'stdio',
+          mcp_transport: isHttpMcp ? 'http' : 'stdio',
           mcp_env: mcpEnv,
+          mcp_auth_token: mcpAuthToken,
         };
 
         const mcpTools = await mcpManager.listTools(`temp-${slug}`, mcpConfig);
@@ -163,6 +180,25 @@ export async function POST(request, { params }) {
     // Format credentials for storage
     const formattedCredentials = formatCredentials(template, credentials);
 
+    // Determine MCP config for source storage
+    let sourceMcpUri = null;
+    let sourceMcpTransport = null;
+    let sourceMcpEnv = null;
+
+    if (template.type === 'mcp') {
+      const isHttpMcp = template.mcp_transport === 'http' || template.mcp_server_url;
+      if (isHttpMcp) {
+        sourceMcpUri = template.mcp_server_url;
+        sourceMcpTransport = 'http';
+      } else {
+        sourceMcpUri = template.mcp_package?.startsWith('@')
+          ? `npx -y ${template.mcp_package}`
+          : template.mcp_package;
+        sourceMcpTransport = 'stdio';
+        sourceMcpEnv = mcpEnv;
+      }
+    }
+
     // Create the source
     const sourceData = {
       org_id: orgId,
@@ -176,14 +212,9 @@ export async function POST(request, { params }) {
       spec_hash: specHash,
       auth_type: template.auth_type,
       auth_config: template.auth_config || {},
-      mcp_server_uri:
-        template.type === 'mcp'
-          ? template.mcp_package.startsWith('@')
-            ? `npx -y ${template.mcp_package}`
-            : template.mcp_package
-          : null,
-      mcp_transport: template.type === 'mcp' ? 'stdio' : null,
-      mcp_env: template.type === 'mcp' ? mcpEnv : null,
+      mcp_server_uri: sourceMcpUri,
+      mcp_transport: sourceMcpTransport,
+      mcp_env: sourceMcpEnv,
       last_synced_at: new Date().toISOString(),
     };
 
@@ -239,6 +270,25 @@ export async function POST(request, { params }) {
       }
     }
 
+    // Link source to user's workspace agent
+    const { data: agent } = await supabase
+      .from('agents')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('name', 'Workspace')
+      .single();
+
+    if (agent) {
+      await supabase.from('agent_sources').upsert(
+        {
+          agent_id: agent.id,
+          source_id: source.id,
+          permission: 'read_write',
+        },
+        { onConflict: 'agent_id,source_id' }
+      );
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -246,7 +296,7 @@ export async function POST(request, { params }) {
           ...source,
           tool_count: toolCount,
         },
-        message: `Successfully installed ${template.name} with ${toolCount} tools`,
+        message: `${template.name} connected — ${toolCount} endpoints available`,
       },
       { status: 201 }
     );
@@ -266,11 +316,14 @@ function validateCredentials(template, credentials) {
   const authConfig = template.auth_config || {};
 
   switch (template.auth_type) {
-    case 'bearer':
-      if (!credentials.token) {
+    case 'bearer': {
+      // Support both 'token' and custom credential_field (e.g., 'api_key' for Stripe)
+      const credField = authConfig.credential_field || 'token';
+      if (!credentials[credField]) {
         return `${authConfig.credential_label || 'Token'} is required`;
       }
       break;
+    }
 
     case 'api_key':
       if (!credentials.api_key) {
@@ -314,10 +367,13 @@ function formatCredentials(template, credentials) {
   const authConfig = template.auth_config || {};
 
   switch (template.auth_type) {
-    case 'bearer':
+    case 'bearer': {
+      // Support both 'token' and custom credential_field
+      const credField = authConfig.credential_field || 'token';
       return {
-        token: credentials.token,
+        token: credentials[credField],
       };
+    }
 
     case 'api_key':
       return {

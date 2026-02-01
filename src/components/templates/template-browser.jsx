@@ -98,20 +98,22 @@ function CredentialForm({ template, onSubmit, loading }) {
 
   const renderCredentialFields = () => {
     switch (template.auth_type) {
-      case "bearer":
+      case "bearer": {
+        const credField = authConfig.credential_field || "token";
         return (
           <div className="space-y-2">
             <label className="text-sm text-white/60">{authConfig.credential_label || "API Token"}</label>
             <Input
               type="password"
-              value={credentials.token || ""}
-              onChange={(e) => setCredentials({ ...credentials, token: e.target.value })}
+              value={credentials[credField] || ""}
+              onChange={(e) => setCredentials({ ...credentials, [credField]: e.target.value })}
               placeholder={authConfig.credential_placeholder || "Enter token..."}
               className="bg-white/5 border-white/10"
               required
             />
           </div>
         );
+      }
 
       case "api_key":
         return (
@@ -249,7 +251,7 @@ function InstallDialog({ template, open, onOpenChange, onSuccess }) {
       if (res.ok) {
         setSuccess(true);
         setResult(json);
-        toast.success(json.message || `Installed ${template.name}`);
+        toast.success(json.message || `${template.name} connected`);
       } else {
         toast.error(json.error || "Failed to install");
       }
@@ -309,9 +311,9 @@ function InstallDialog({ template, open, onOpenChange, onSuccess }) {
             <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
               <Check className="w-8 h-8 text-green-400" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Installed!</h3>
+            <h3 className="text-lg font-bold text-white mb-2">Connected!</h3>
             <p className="text-white/50 text-sm mb-4">
-              {result?.source?.tool_count || 0} tools ready to use
+              {result?.source?.tool_count || 0} endpoints available
             </p>
             <Button onClick={handleClose} className="bg-white/10 hover:bg-white/15">
               Done

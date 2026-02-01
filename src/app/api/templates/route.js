@@ -71,11 +71,14 @@ export async function GET(request) {
       description: i.description,
       category: i.category,
       type: i.type,
+      tier: i.tier,
       logo_url: i.logo_url,
       docs_url: i.docs_url,
       use_cases: i.use_cases,
       is_featured: i.is_featured,
       auth_type: i.auth_type,
+      auth_config: i.auth_config,
+      base_url: i.base_url,
       install_count: installCounts[i.id] || 0,
     }));
 

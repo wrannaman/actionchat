@@ -42,11 +42,12 @@ export async function GET(request, { params }) {
       return Response.json({ error: 'Failed to load messages' }, { status: 500 });
     }
 
-    // Convert to AI SDK message format
+    // Convert to AI SDK UIMessage format (with parts array)
     const formattedMessages = (messages || []).map(msg => ({
       id: msg.id,
       role: msg.role,
-      content: msg.content,
+      // UIMessage format uses parts array, not content string
+      parts: [{ type: 'text', text: msg.content || '' }],
       createdAt: msg.created_at,
     }));
 

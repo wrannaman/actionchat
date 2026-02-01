@@ -94,7 +94,7 @@ export async function POST(request) {
       description = '',
       system_prompt,
       model_provider = 'openai',
-      model_name = 'gpt-4o',
+      model_name = 'gpt-5-mini',
       temperature = 0.1,
       source_links = [],
     } = body;

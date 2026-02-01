@@ -46,7 +46,7 @@ export async function POST(request) {
           description: 'Default workspace agent',
           system_prompt: 'You are a helpful operations assistant. Be concise. Always include IDs in your responses.',
           model_provider: 'openai',
-          model_name: 'gpt-4o',
+          model_name: 'gpt-5-mini',
           temperature: 0.1,
         })
         .select('id')

@@ -35,12 +35,18 @@ import {
   Trash2,
   PanelLeftClose,
   PanelLeft,
+  Activity,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { cachedFetch, clearFetchCache } from "@/lib/fetch-cache";
 import { ChatMessage } from "@/components/chat/chat-message";
 import { CredentialModal } from "@/components/chat/credential-modal";
 import { ApiDetailModal } from "@/components/chat/api-detail-modal";
+import { TemplateBrowser } from "@/components/templates/template-browser";
+import { ActionsRail } from "@/components/chat/actions-rail";
+import { SlashCommandAutocomplete } from "@/components/chat/slash-command-autocomplete";
+import { useSlashCommands } from "@/hooks/use-slash-commands";
 
 function TargetIcon({ className }) {
   return (
@@ -198,7 +204,7 @@ function ChatSidebar({
 
 // Add API dialog - shows saved APIs + add new
 function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
-  const [tab, setTab] = useState("library");
+  const [tab, setTab] = useState("catalog");
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -240,7 +246,7 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
 
   const handleClose = () => {
     resetNewForm();
-    setTab("library");
+    setTab("catalog");
     onOpenChange(false);
   };
 
@@ -395,324 +401,228 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
     }
   };
 
+  const handleSourceCreated = (source) => {
+    // Skip credential prompt since creds were just saved during template install
+    onAdd(source, { skipCredentialPrompt: true });
+    loadAllSources();
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="bg-[#0d0d12] border-white/10 text-white sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Manage APIs</DialogTitle>
+      <DialogContent className="bg-[#0a0a0f] border-white/10 text-white max-w-4xl max-h-[85vh] flex flex-col">
+        <DialogHeader className="shrink-0">
+          <DialogTitle className="text-xl">Connect APIs & Integrations</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-1 p-1 bg-white/5 rounded-lg">
+        {/* Tabs */}
+        <div className="flex gap-1 p-1 bg-white/5 rounded-lg shrink-0">
+          <button
+            onClick={() => setTab("catalog")}
+            className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-colors ${
+              tab === "catalog" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/70"
+            }`}
+          >
+            Browse Catalog
+          </button>
           <button
             onClick={() => { setTab("library"); resetNewForm(); }}
-            className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+            className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-colors ${
               tab === "library" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/70"
             }`}
           >
-            Your APIs
+            Your APIs {allSources.length > 0 && `(${allSources.length})`}
           </button>
           <button
-            onClick={() => setTab("new")}
-            className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-              tab === "new" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/70"
+            onClick={() => setTab("custom")}
+            className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-colors ${
+              tab === "custom" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/70"
             }`}
           >
-            Add New
+            Custom API
           </button>
         </div>
 
         {error && (
-          <div className="p-3 rounded-lg bg-red-950/30 border border-red-500/30 text-red-300 text-sm">
+          <div className="p-3 rounded-lg bg-red-950/30 border border-red-500/30 text-red-300 text-sm shrink-0">
             {error}
           </div>
         )}
 
-        {tab === "library" ? (
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {loadingSources ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-5 h-5 animate-spin text-white/50" />
-              </div>
-            ) : allSources.length === 0 ? (
-              <div className="text-center py-6 space-y-4">
-                <p className="text-white/40">No APIs saved yet.</p>
-
-                {/* Quick-add Mock API */}
-                <div className="p-4 rounded-lg bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
-                  <div className="flex items-center justify-between">
-                    <div className="text-left">
-                      <div className="font-medium text-white flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-cyan-400" />
-                        Try Mock API
-                      </div>
-                      <div className="text-xs text-white/50 mt-1">
-                        8 sample endpoints to test with
-                      </div>
-                    </div>
-                    <Button
-                      onClick={() => {
-                        const mockUrl = `${window.location.origin}/api/mock/openapi.json`;
-                        setTab("new");
-                        setUrl(mockUrl);
-                        handleFetch(mockUrl);
-                      }}
-                      size="sm"
-                      className="bg-cyan-500 hover:bg-cyan-400 text-white"
-                    >
-                      Add
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {tab === "catalog" ? (
+            <div className="py-2">
+              <TemplateBrowser onSourceCreated={handleSourceCreated} />
+            </div>
+          ) : tab === "library" ? (
+            <div className="space-y-2 py-2">
+              {loadingSources ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-white/50" />
+                </div>
+              ) : allSources.length === 0 ? (
+                <div className="text-center py-12 space-y-4">
+                  <div className="text-white/30 text-lg">No APIs connected yet</div>
+                  <p className="text-white/50 text-sm max-w-md mx-auto">
+                    Browse the catalog to add popular integrations like Stripe, GitHub, or Slack.
+                    Or add a custom OpenAPI spec.
+                  </p>
+                  <div className="flex justify-center gap-3 pt-4">
+                    <Button onClick={() => setTab("catalog")} className="bg-blue-500 hover:bg-blue-400">
+                      Browse Catalog
+                    </Button>
+                    <Button onClick={() => setTab("custom")} variant="outline" className="border-white/10 hover:bg-white/5">
+                      Add Custom API
                     </Button>
                   </div>
                 </div>
-
-                <div className="text-white/30 text-sm">or</div>
-
-                <button onClick={() => setTab("new")} className="text-blue-400 hover:text-blue-300">
-                  Add your own API
-                </button>
-              </div>
-            ) : (
-              allSources.map((source) => {
-                const isActive = activeIds.has(source.id);
-                return (
-                  <div
-                    key={source.id}
-                    className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                      isActive ? "bg-blue-500/10 border-blue-500/30" : "bg-white/5 border-white/10"
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-white truncate">{source.name}</div>
-                      <div className="text-xs text-white/40">
-                        {source.tool_count || 0} endpoint{(source.tool_count || 0) === 1 ? "" : "s"}
+              ) : (
+                <>
+                  <p className="text-sm text-white/50 mb-3">
+                    Toggle APIs on/off for this chat session. Active APIs will be available for the AI to use.
+                  </p>
+                  {allSources.map((source) => {
+                    const isActive = activeIds.has(source.id);
+                    return (
+                      <div
+                        key={source.id}
+                        className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
+                          isActive ? "bg-blue-500/10 border-blue-500/30" : "bg-white/[0.02] border-white/10"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center">
+                            <Zap className="w-5 h-5 text-cyan-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-white truncate">{source.name}</div>
+                            <div className="text-xs text-white/40">
+                              {source.tool_count || 0} endpoint{(source.tool_count || 0) === 1 ? "" : "s"}
+                              {source.source_type === "mcp" && (
+                                <span className="ml-2 px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 text-[10px]">MCP</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleToggleSource(source, isActive)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            isActive
+                              ? "bg-blue-500 text-white hover:bg-blue-400"
+                              : "bg-white/10 text-white/70 hover:bg-white/20"
+                          }`}
+                        >
+                          {isActive ? "Active" : "Enable"}
+                        </button>
                       </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6 py-4 max-w-lg mx-auto">
+              {!preview ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-white/70 mb-2">
+                      OpenAPI Spec URL
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="https://api.example.com/openapi.json"
+                        className="bg-white/5 border-white/10 flex-1"
+                        autoFocus
+                      />
+                      <Button
+                        onClick={() => handleFetch()}
+                        disabled={loading || !url?.trim()}
+                        className="bg-blue-500 hover:bg-blue-400 px-6"
+                      >
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Fetch"}
+                      </Button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 border-t border-white/10" />
+                    <span className="text-white/30 text-sm">or</span>
+                    <div className="flex-1 border-t border-white/10" />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-white/70 mb-2">
+                      Upload File
+                    </label>
+                    <label className="flex items-center justify-center gap-2 p-6 border-2 border-dashed border-white/10 rounded-lg hover:border-white/20 hover:bg-white/[0.02] transition-colors cursor-pointer">
+                      <input type="file" accept=".json,.yaml,.yml" onChange={handleFileUpload} className="hidden" />
+                      <Upload className="w-5 h-5 text-white/40" />
+                      <span className="text-white/50">Drop an OpenAPI spec or click to browse</span>
+                    </label>
+                  </div>
+
+                  <div className="pt-4 border-t border-white/10">
+                    <p className="text-xs text-white/40 mb-3">Quick start:</p>
                     <button
-                      onClick={() => handleToggleSource(source, isActive)}
-                      className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                        isActive ? "bg-blue-500 text-white hover:bg-blue-400" : "bg-white/10 text-white/70 hover:bg-white/20"
-                      }`}
+                      onClick={() => {
+                        const mockUrl = `${window.location.origin}/api/mock/openapi.json`;
+                        setUrl(mockUrl);
+                        handleFetch(mockUrl);
+                      }}
+                      className="w-full flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 hover:border-cyan-500/40 transition-colors"
                     >
-                      {isActive ? "Active" : "Add"}
+                      <div className="flex items-center gap-3">
+                        <Zap className="w-5 h-5 text-cyan-400" />
+                        <div className="text-left">
+                          <div className="font-medium text-white">Try Mock API</div>
+                          <div className="text-xs text-white/50">8 sample endpoints to test with</div>
+                        </div>
+                      </div>
+                      <span className="text-cyan-400 text-sm">Add →</span>
                     </button>
                   </div>
-                );
-              })
-            )}
-          </div>
-        ) : !preview ? (
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="https://api.example.com/openapi.json"
-                className="bg-white/5 border-white/10 flex-1"
-                autoFocus
-              />
-              <Button
-                onClick={handleFetch}
-                disabled={loading || !url?.trim()}
-                className="bg-blue-500 hover:bg-blue-400 px-4"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Fetch"}
-              </Button>
-            </div>
-            <div className="flex items-center gap-3 text-sm text-white/30">
-              <span>or</span>
-              <label className="cursor-pointer hover:text-white/50 transition-colors">
-                <input type="file" accept=".json" onChange={handleFileUpload} className="hidden" />
-                <span className="flex items-center gap-1">
-                  <Upload className="h-3.5 w-3.5" />
-                  upload a file
-                </span>
-              </label>
-            </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-6 rounded-lg bg-green-950/20 border border-green-500/30 text-center">
+                    <div className="text-2xl font-bold text-white mb-1">{preview.name}</div>
+                    <div className="text-white/50">
+                      Version {preview.version} · {preview.toolCount} endpoint{preview.toolCount === 1 ? "" : "s"} found
+                    </div>
+                  </div>
 
-            {/* Quick-add Mock API suggestion */}
-            <div className="pt-2 border-t border-white/5">
-              <button
-                onClick={() => {
-                  const mockUrl = `${window.location.origin}/api/mock/openapi.json`;
-                  setUrl(mockUrl);
-                  handleFetch(mockUrl);
-                }}
-                className="w-full p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-colors text-left"
-              >
-                <div className="flex items-center gap-2 text-sm">
-                  <Zap className="w-4 h-4 text-cyan-400" />
-                  <span className="text-white/80">Try our Mock API</span>
-                  <span className="text-white/30 text-xs ml-auto">8 endpoints</span>
+                  {preview.toolCount === 0 && (
+                    <div className="p-4 rounded-lg bg-yellow-950/30 border border-yellow-500/30 text-yellow-300 text-sm">
+                      No endpoints found. The spec may be empty or use an unsupported format.
+                    </div>
+                  )}
+
+                  <div className="flex justify-center gap-3 pt-4">
+                    <Button type="button" variant="outline" onClick={resetNewForm} className="border-white/10 px-6">
+                      Back
+                    </Button>
+                    <Button
+                      onClick={handleSave}
+                      disabled={saving || preview.toolCount === 0}
+                      className="bg-blue-500 hover:bg-blue-400 px-8"
+                    >
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                      Add API
+                    </Button>
+                  </div>
                 </div>
-              </button>
+              )}
             </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="p-4 rounded-lg bg-green-950/20 border border-green-500/30">
-              <div className="font-medium text-white mb-1">{preview.name}</div>
-              <div className="text-sm text-white/50">
-                Version {preview.version} · {preview.toolCount} endpoint{preview.toolCount === 1 ? "" : "s"} found
-              </div>
-            </div>
-
-            {preview.toolCount === 0 && (
-              <div className="p-3 rounded-lg bg-yellow-950/30 border border-yellow-500/30 text-yellow-300 text-sm">
-                No endpoints found. The spec may be empty or use an unsupported format.
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={resetNewForm} className="text-white/50">
-                Back
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={saving || preview.toolCount === 0}
-                className="bg-blue-500 hover:bg-blue-400"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add API"}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-end">
-          <Button type="button" variant="ghost" onClick={handleClose} className="text-white/50">
-            Done
-          </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-// Settings dialog for API keys
-function SettingsDialog({ open, onOpenChange, onSave }) {
-  const [provider, setProvider] = useState("openai");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
-  const [anthropicKey, setAnthropicKey] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const body = {};
-      if (provider === "openai") {
-        body.openai_api_key = openaiKey.trim() || null;
-        if (openaiBaseUrl.trim()) {
-          body.openai_base_url = openaiBaseUrl.trim();
-        }
-      } else if (provider === "anthropic") {
-        body.anthropic_api_key = anthropicKey.trim() || null;
-      }
-
-      const res = await fetch("/api/workspace", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        onSave?.(data.has_api_key);
-        toast.success("Settings saved");
-        onOpenChange(false);
-      } else {
-        toast.error("Failed to save settings");
-      }
-    } catch {
-      toast.error("Failed to save settings");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-[#0d0d12] border-white/10 text-white sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="flex gap-1 p-1 bg-white/5 rounded-lg">
-            <button
-              onClick={() => setProvider("openai")}
-              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                provider === "openai" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/70"
-              }`}
-            >
-              OpenAI
-            </button>
-            <button
-              onClick={() => setProvider("anthropic")}
-              className={`flex-1 px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                provider === "anthropic" ? "bg-white/10 text-white" : "text-white/50 hover:text-white/70"
-              }`}
-            >
-              Anthropic
-            </button>
-          </div>
-
-          {provider === "openai" && (
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm text-white/50 block mb-1">API Key</label>
-                <Input
-                  type="password"
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="bg-white/5 border-white/10"
-                />
-              </div>
-              <div>
-                <label className="text-sm text-white/50 block mb-1">
-                  Base URL <span className="text-white/30">(optional, for self-hosted)</span>
-                </label>
-                <Input
-                  value={openaiBaseUrl}
-                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
-                  placeholder="https://api.openai.com/v1"
-                  className="bg-white/5 border-white/10"
-                />
-              </div>
-              <p className="text-xs text-white/30">
-                Works with OpenAI, Azure OpenAI, or any OpenAI-compatible API (Ollama, vLLM, etc.)
-              </p>
-            </div>
-          )}
-
-          {provider === "anthropic" && (
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm text-white/50 block mb-1">API Key</label>
-                <Input
-                  type="password"
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="bg-white/5 border-white/10"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="text-white/50">
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={saving} className="bg-blue-500 hover:bg-blue-400">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // Chat interface with persistence
 function ChatInterface({
@@ -730,37 +640,158 @@ function ChatInterface({
 }) {
   const messagesEndRef = useRef(null);
   const chatIdRef = useRef(currentChatId);
+  const inputRef = useRef(null);
   const [input, setInput] = useState("");
+  const [executing, setExecuting] = useState(false);
+
+  // Slash command support
+  const {
+    showAutocomplete,
+    suggestions,
+    selectedIndex,
+    handleInputChange,
+    handleKeyDown: handleSlashKeyDown,
+    selectTool,
+    closeAutocomplete,
+    parseCommand,
+    isSlashCommand,
+  } = useSlashCommands({ agentId });
 
   // Update ref when prop changes
   useEffect(() => {
     chatIdRef.current = currentChatId;
   }, [currentChatId]);
 
+  // Track pending chat ID to apply after stream finishes
+  const pendingChatIdRef = useRef(null);
+
+  // Generate a stable chat key - use currentChatId if resuming, or a new ID for fresh chats
+  const chatKeyRef = useRef(currentChatId || `chat-${Date.now()}`);
+
   const { messages, status, sendMessage, setMessages } = useChat({
     api: "/api/chat",
-    id: currentChatId || undefined,
+    id: chatKeyRef.current,
     initialMessages: initialMessages || [],
-    onResponse: (response) => {
+    onResponse: async (response) => {
+      console.log('[CHAT] Response received, status:', response.status);
       // Capture chatId from response header
       const newChatId = response.headers.get("X-Chat-Id");
       if (newChatId && newChatId !== chatIdRef.current) {
-        chatIdRef.current = newChatId;
-        setCurrentChatId(newChatId);
-        onChatCreated?.(newChatId);
+        console.log('[CHAT] New chat ID from header:', newChatId);
+        pendingChatIdRef.current = newChatId;
+      }
+    },
+    onFinish: (message) => {
+      console.log('[CHAT] Stream finished, parts:', message?.message?.parts?.length);
+      // Apply pending chat ID after stream is complete
+      if (pendingChatIdRef.current) {
+        chatIdRef.current = pendingChatIdRef.current;
+        setCurrentChatId(pendingChatIdRef.current);
+        onChatCreated?.(pendingChatIdRef.current);
+        pendingChatIdRef.current = null;
       }
     },
     onError: (err) => {
-      console.error("[useChat] onError:", err);
+      console.error('[CHAT] Error:', err?.message);
       toast.error(err.message || "Chat failed - check your API key in settings");
     },
   });
 
-  const isLoading = status === 'streaming' || status === 'submitted';
+  // Debug: log messages array changes
+  useEffect(() => {
+    console.log('[CHAT] messages array updated:', messages.length, 'messages');
+    if (messages.length > 0) {
+      console.log('[CHAT] Messages:', messages.map(m => ({ id: m.id, role: m.role, partsCount: m.parts?.length })));
+    }
+  }, [messages]);
 
-  const handleSubmit = (e) => {
+
+  const isLoading = status === 'streaming' || status === 'submitted' || executing;
+
+  // Handle input change with slash command detection
+  const handleChange = (e) => {
+    const value = e.target.value;
+    setInput(value);
+    handleInputChange(value);
+  };
+
+  // Handle keyboard events for autocomplete navigation
+  const handleKeyDown = (e) => {
+    const result = handleSlashKeyDown(e);
+    if (result === "handled") return;
+    if (result?.type === "select") {
+      const newValue = selectTool(result.tool);
+      setInput(newValue);
+      return;
+    }
+  };
+
+  // Execute a slash command directly
+  const executeSlashCommand = async (tool, params) => {
+    setExecuting(true);
+    try {
+      const res = await fetch("/api/tools/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolId: tool.id,
+          params,
+          agentId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.requiresConfirmation) {
+        // Add a message showing the pending confirmation
+        toast.info("Action requires confirmation");
+        // For now, send as regular message so AI can handle confirmation
+        sendMessage(
+          { text: input },
+          { body: { agentId, chatId: currentChatId } }
+        );
+      } else if (data.ok) {
+        // Show result as a message
+        const resultText = data.result?.error
+          ? `Error: ${data.result.error}`
+          : `Executed ${tool.name}: ${JSON.stringify(data.result?.body || {}, null, 2)}`;
+        toast.success("Command executed");
+        // Send as regular message for history
+        sendMessage(
+          { text: input },
+          { body: { agentId, chatId: currentChatId } }
+        );
+      } else {
+        toast.error(data.error || "Failed to execute command");
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to execute command");
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
+
+    closeAutocomplete();
+
+    // Check if this is a slash command
+    if (isSlashCommand(input)) {
+      const parsed = parseCommand(input);
+      if (parsed) {
+        // Execute directly via API
+        await executeSlashCommand(parsed.tool, parsed.params);
+        setInput("");
+        return;
+      }
+      // If command not found, send as regular message
+      toast.info("Unknown command, sending as message");
+    }
+
+    console.log('[CHAT] Calling sendMessage with text:', input);
+    console.log('[CHAT] Current messages before send:', messages.length);
     sendMessage(
       { text: input },
       { body: { agentId, chatId: currentChatId } }
@@ -849,29 +880,47 @@ function ChatInterface({
             </button>
           </div>
 
-          {/* Input */}
-          <form onSubmit={handleSubmit} className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type a message..."
-              disabled={isLoading}
-              className="flex-1 bg-white/5 border border-white/10 h-12 text-base px-3 rounded-md text-white placeholder:text-white/30 outline-none focus:border-blue-500"
-              autoFocus
-            />
-            <Button
-              type="submit"
-              disabled={!input.trim() || isLoading}
-              className="h-12 px-4 bg-blue-500 hover:bg-blue-400"
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-5 h-5" />
-              )}
-            </Button>
-          </form>
+          {/* Input with slash command autocomplete */}
+          <div className="relative">
+            {/* Autocomplete dropdown */}
+            {showAutocomplete && (
+              <SlashCommandAutocomplete
+                suggestions={suggestions}
+                selectedIndex={selectedIndex}
+                onSelect={(tool) => {
+                  const newValue = selectTool(tool);
+                  setInput(newValue);
+                  inputRef.current?.focus();
+                }}
+                onHover={() => {}}
+              />
+            )}
+
+            <form onSubmit={handleSubmit} className="flex gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={handleChange}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message or /command..."
+                disabled={isLoading}
+                className="flex-1 bg-white/5 border border-white/10 h-12 text-base px-3 rounded-md text-white placeholder:text-white/30 outline-none focus:border-blue-500"
+                autoFocus
+              />
+              <Button
+                type="submit"
+                disabled={!input.trim() || isLoading}
+                className="h-12 px-4 bg-blue-500 hover:bg-blue-400"
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
+              </Button>
+            </form>
+          </div>
         </div>
       </div>
     </>
@@ -886,8 +935,8 @@ function ChatContent({ initialChatId }) {
   const [workspace, setWorkspace] = useState(null);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [actionsRailOpen, setActionsRailOpen] = useState(false);
 
   // Chat state
   const [chats, setChats] = useState([]);
@@ -926,7 +975,7 @@ function ChatContent({ initialChatId }) {
 
   const loadWorkspace = async () => {
     try {
-      const res = await fetch("/api/workspace");
+      const res = await cachedFetch("/api/workspace", {}, { ttlMs: 30000 });
       if (res.ok) {
         const data = await res.json();
         setWorkspace(data.workspace);
@@ -941,7 +990,7 @@ function ChatContent({ initialChatId }) {
   const loadChats = async () => {
     setLoadingChats(true);
     try {
-      const res = await fetch("/api/workspace/chats");
+      const res = await cachedFetch("/api/workspace/chats", {}, { ttlMs: 5000 });
       if (res.ok) {
         const data = await res.json();
         setChats(data.chats || []);
@@ -957,7 +1006,7 @@ function ChatContent({ initialChatId }) {
     console.log("[loadChat] Loading chat:", chatId);
     setLoadingMessages(true);
     try {
-      const res = await fetch(`/api/workspace/chats/${chatId}`);
+      const res = await cachedFetch(`/api/workspace/chats/${chatId}`, {}, { ttlMs: 5000 });
       console.log("[loadChat] Response status:", res.status);
       if (res.ok) {
         const data = await res.json();
@@ -979,7 +1028,9 @@ function ChatContent({ initialChatId }) {
   const handleNewChat = () => {
     setCurrentChatId(null);
     setCurrentMessages([]);
-    router.push("/chat", { scroll: false });
+    // Use replaceState to update URL without causing a full page navigation
+    // (router.push to /chat from /chat/[id] causes a full remount)
+    window.history.replaceState(null, "", "/chat");
   };
 
   const handleSelectChat = (chatId) => {
@@ -994,6 +1045,7 @@ function ChatContent({ initialChatId }) {
         method: "DELETE",
       });
       if (res.ok) {
+        clearFetchCache((key) => key.includes("/api/workspace/chats"));
         setChats((prev) => prev.filter((c) => c.id !== chatId));
         if (chatId === currentChatId) {
           handleNewChat();
@@ -1006,6 +1058,8 @@ function ChatContent({ initialChatId }) {
   };
 
   const handleChatCreated = useCallback((chatId) => {
+    // Clear chats cache before refreshing list
+    clearFetchCache((key) => key.includes("/api/workspace/chats"));
     // Update URL and refresh chat list
     router.push(`/chat/${chatId}`, { scroll: false });
     loadChats();
@@ -1021,6 +1075,7 @@ function ChatContent({ initialChatId }) {
         body: JSON.stringify({ openai_api_key: apiKey.trim() }),
       });
       if (res.ok) {
+        clearFetchCache((key) => key.includes("/api/workspace"));
         await loadWorkspace();
         setApiKey("");
         toast.success("API key saved");
@@ -1040,6 +1095,7 @@ function ChatContent({ initialChatId }) {
         method: "DELETE",
       });
       if (res.ok) {
+        clearFetchCache((key) => key.includes("/api/workspace") || key.includes("/api/sources"));
         setWorkspace((prev) => ({
           ...prev,
           sources: prev.sources.filter((s) => s.id !== sourceId),
@@ -1051,17 +1107,23 @@ function ChatContent({ initialChatId }) {
     }
   };
 
-  const handleAddSource = (source) => {
+  const handleAddSource = (source, { skipCredentialPrompt = false } = {}) => {
+    clearFetchCache((key) => key.includes("/api/workspace") || key.includes("/api/sources"));
     setWorkspace((prev) => ({
       ...prev,
       sources: [...(prev?.sources || []), source],
     }));
 
-    // If source requires auth, prompt for credentials
+    // If source requires auth and we didn't just save credentials, prompt
     const needsAuth = source.auth_type && source.auth_type !== "none" && source.auth_type !== "passthrough";
-    if (needsAuth) {
+    if (needsAuth && !skipCredentialPrompt) {
       setSelectedSourceForCreds(source);
       setCredentialModalOpen(true);
+    }
+
+    // Mark as having credentials if we skipped the prompt (means creds were just saved)
+    if (skipCredentialPrompt) {
+      setCredentialStatus(prev => ({ ...prev, [source.id]: true }));
     }
   };
 
@@ -1080,7 +1142,7 @@ function ChatContent({ initialChatId }) {
         }
 
         try {
-          const res = await fetch(`/api/sources/${source.id}/credentials`);
+          const res = await cachedFetch(`/api/sources/${source.id}/credentials`, {}, { ttlMs: 30000 });
           if (res.ok) {
             const data = await res.json();
             statusMap[source.id] = data.has_credentials;
@@ -1113,10 +1175,12 @@ function ChatContent({ initialChatId }) {
   };
 
   const handleCredentialSave = (sourceId) => {
+    clearFetchCache((key) => key.includes(`/api/sources/${sourceId}/credentials`));
     setCredentialStatus((prev) => ({ ...prev, [sourceId]: true }));
   };
 
   const handleCredentialDelete = (sourceId) => {
+    clearFetchCache((key) => key.includes(`/api/sources/${sourceId}/credentials`));
     setCredentialStatus((prev) => ({ ...prev, [sourceId]: false }));
   };
 
@@ -1152,25 +1216,42 @@ function ChatContent({ initialChatId }) {
             )}
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-white/50 hover:text-white">
-                <User className="w-4 h-4 mr-2" />
-                {user?.email?.split("@")[0] || "User"}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-[#0d0d12] border-white/10 text-white">
-              <DropdownMenuItem onClick={() => setSettingsOpen(true)} className="cursor-pointer">
-                <Key className="w-4 h-4 mr-2" />
-                API Keys
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-white/10" />
-              <DropdownMenuItem onClick={handleLogout} className="text-red-400 cursor-pointer">
-                <LogOut className="w-4 h-4 mr-2" />
-                Sign Out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-2">
+            {isReady && (
+              <button
+                onClick={() => setActionsRailOpen(!actionsRailOpen)}
+                className={`p-2 rounded-md transition-colors cursor-pointer ${
+                  actionsRailOpen
+                    ? "bg-cyan-500/20 text-cyan-400"
+                    : "hover:bg-white/10 text-white/40 hover:text-white/70"
+                }`}
+                title="Recent Actions"
+              >
+                <Activity className="w-4 h-4" />
+              </button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="text-white/50 hover:text-white">
+                  <User className="w-4 h-4 mr-2" />
+                  {user?.email?.split("@")[0] || "User"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-[#0d0d12] border-white/10 text-white">
+                <DropdownMenuItem asChild className="cursor-pointer">
+                  <Link href="/settings">
+                    <Key className="w-4 h-4 mr-2" />
+                    Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-white/10" />
+                <DropdownMenuItem onClick={handleLogout} className="text-red-400 cursor-pointer">
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
@@ -1193,21 +1274,28 @@ function ChatContent({ initialChatId }) {
               <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
             </div>
           ) : (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <ChatInterface
+            <>
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <ChatInterface
+                  agentId={workspace.agent_id}
+                  sources={sources}
+                  onRemoveSource={handleRemoveSource}
+                  onOpenAddDialog={() => setAddDialogOpen(true)}
+                  currentChatId={currentChatId}
+                  setCurrentChatId={setCurrentChatId}
+                  initialMessages={currentMessages}
+                  onChatCreated={handleChatCreated}
+                  credentialStatus={credentialStatus}
+                  onCredentialClick={handleCredentialClick}
+                  onApiDetailClick={handleApiDetailClick}
+                />
+              </div>
+              <ActionsRail
                 agentId={workspace.agent_id}
-                sources={sources}
-                onRemoveSource={handleRemoveSource}
-                onOpenAddDialog={() => setAddDialogOpen(true)}
-                currentChatId={currentChatId}
-                setCurrentChatId={setCurrentChatId}
-                initialMessages={currentMessages}
-                onChatCreated={handleChatCreated}
-                credentialStatus={credentialStatus}
-                onCredentialClick={handleCredentialClick}
-                onApiDetailClick={handleApiDetailClick}
+                isOpen={actionsRailOpen}
+                onToggle={() => setActionsRailOpen(!actionsRailOpen)}
               />
-            </div>
+            </>
           )
         ) : (
           <main className="flex-1 overflow-y-auto px-4 py-6">
@@ -1244,9 +1332,9 @@ function ChatContent({ initialChatId }) {
                         Get an API key from OpenAI
                       </a>
                       {" · "}
-                      <button onClick={() => setSettingsOpen(true)} className="underline hover:text-white/50">
+                      <Link href="/settings" className="underline hover:text-white/50">
                         More providers
-                      </button>
+                      </Link>
                     </p>
                   </div>
                 ) : sources.length === 0 ? (
@@ -1282,11 +1370,6 @@ function ChatContent({ initialChatId }) {
         activeSources={sources}
       />
 
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        onSave={() => loadWorkspace()}
-      />
 
       <CredentialModal
         open={credentialModalOpen}
