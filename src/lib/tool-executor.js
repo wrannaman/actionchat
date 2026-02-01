@@ -19,7 +19,8 @@ export function buildUrl(baseUrl, path, args, paramSchema) {
 
   for (const [name, schema] of Object.entries(properties)) {
     const value = args[name];
-    if (value === undefined || value === null) continue;
+    // Skip empty values - don't send empty strings to APIs
+    if (value === undefined || value === null || value === '') continue;
 
     if (schema.in === 'path') {
       resolvedPath = resolvedPath.replace(`{${name}}`, encodeURIComponent(value));
@@ -50,6 +51,8 @@ export function buildRequestBody(args, paramSchema, requestBodySchema) {
     const paramProps = paramSchema?.properties || {};
     const body = {};
     for (const [key, value] of Object.entries(args)) {
+      // Skip empty values
+      if (value === undefined || value === null || value === '') continue;
       const paramDef = paramProps[key];
       if (paramDef && (paramDef.in === 'path' || paramDef.in === 'query')) continue;
       body[key] = value;
@@ -61,9 +64,10 @@ export function buildRequestBody(args, paramSchema, requestBodySchema) {
   const bodyProps = requestBodySchema.properties || {};
   const body = {};
   for (const key of Object.keys(bodyProps)) {
-    if (args[key] !== undefined) {
-      body[key] = args[key];
-    }
+    const value = args[key];
+    // Skip empty values
+    if (value === undefined || value === null || value === '') continue;
+    body[key] = value;
   }
   return Object.keys(body).length > 0 ? body : null;
 }
@@ -147,9 +151,35 @@ export function buildAuthHeaders(source, userCredentials) {
  * @param {object|null} params.userCredentials - User's credentials (for env var injection)
  * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
  */
+/**
+ * Strip empty values from args object.
+ * LLMs often pass empty strings for optional params - APIs don't want those.
+ */
+function cleanArgs(args) {
+  const cleaned = {};
+  for (const [key, value] of Object.entries(args || {})) {
+    if (value === undefined || value === null || value === '') continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
 async function executeMcpTool({ tool, source, args, userCredentials }) {
   const startTime = Date.now();
   const toolName = tool.mcp_tool_name || tool.path;
+
+  // Clean empty values before sending to MCP
+  const cleanedArgs = cleanArgs(args);
+
+  console.log('[MCP EXEC] ══════════════════════════════════════════');
+  console.log('[MCP EXEC] Tool:', toolName);
+  console.log('[MCP EXEC] Source:', source.name, '|', source.source_type);
+  console.log('[MCP EXEC] Server URI:', source.mcp_server_uri);
+  console.log('[MCP EXEC] Transport:', source.mcp_transport);
+  console.log('[MCP EXEC] Raw args:', JSON.stringify(args, null, 2));
+  console.log('[MCP EXEC] Cleaned args:', JSON.stringify(cleanedArgs, null, 2));
+  console.log('[MCP EXEC] Has credentials:', !!userCredentials);
+  console.log('[MCP EXEC] ══════════════════════════════════════════');
 
   // Determine auth token for HTTP MCP
   let mcpAuthToken = null;
@@ -171,11 +201,33 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
   };
 
   try {
-    const result = await mcpManager.callTool(source.id, mcpConfig, toolName, args);
+    console.log('[MCP EXEC] Calling mcpManager.callTool...');
+    const result = await mcpManager.callTool(source.id, mcpConfig, toolName, cleanedArgs);
     const duration_ms = Date.now() - startTime;
+
+    console.log('[MCP EXEC] Raw result:', JSON.stringify(result, null, 2).slice(0, 8000));
 
     // Parse the MCP result
     const parsed = parseMcpResult(result);
+
+    console.log('[MCP EXEC] Parsed:', { isError: parsed.isError, hasData: !!parsed.data, textLen: parsed.text?.length });
+    console.log('[MCP EXEC] Duration:', duration_ms, 'ms');
+
+    // Debug: Log structure of returned data to help debug missing fields
+    if (parsed.data) {
+      const data = parsed.data;
+      if (Array.isArray(data)) {
+        console.log('[MCP EXEC] Data is array with', data.length, 'items');
+        if (data[0]) console.log('[MCP EXEC] First item keys:', Object.keys(data[0]));
+      } else if (data.data && Array.isArray(data.data)) {
+        console.log('[MCP EXEC] Data.data is array with', data.data.length, 'items');
+        if (data.data[0]) {
+          console.log('[MCP EXEC] First item keys:', Object.keys(data.data[0]));
+          console.log('[MCP EXEC] First item email:', data.data[0].email);
+          console.log('[MCP EXEC] First item name:', data.data[0].name);
+        }
+      }
+    }
 
     return {
       url: `mcp://${source.name}/${toolName}`,
@@ -185,6 +237,8 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
       error_message: parsed.isError ? parsed.text : null,
     };
   } catch (error) {
+    console.error('[MCP EXEC] ERROR:', error.message);
+    console.error('[MCP EXEC] Stack:', error.stack);
     return {
       url: `mcp://${source.name}/${toolName}`,
       response_status: 0,

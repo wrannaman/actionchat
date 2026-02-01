@@ -188,10 +188,14 @@ function buildEmbedPrompt(agent, toolRows) {
   }
 
   if (toolRows.length > 0) {
-    parts.push('', 'You have access to read-only API tools. You cannot perform destructive actions from this widget.');
+    parts.push('', 'You have access to read-only API tools.');
   }
 
-  parts.push('', 'Be concise and helpful. This is an embedded widget — keep responses short.');
+  parts.push('', `## Guidelines
+- JUST DO IT: Execute requests immediately with sensible defaults. Don't ask clarifying questions.
+- Be concise. This is an embedded widget.
+- Summarize results in plain language, not raw JSON.
+- Never include internal metadata (response IDs, etc.) in your response.`);
 
   return parts.join('\n');
 }

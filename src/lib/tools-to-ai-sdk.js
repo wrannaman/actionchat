@@ -58,6 +58,8 @@ export function convertToolsToAISDK(toolRows, { sourceMap, userCredentialsMap, u
           _actionchat: {
             tool_id: row.tool_id,
             tool_name: row.tool_name,
+            source_id: source.id,
+            source_name: source.name,
             method: row.method,
             url: result.url,
             request_body: args,

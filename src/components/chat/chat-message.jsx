@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ToolCallDisplay } from "./tool-call-display";
+import { ToolCallDisplay, GroupedToolCallDisplay } from "./tool-call-display";
 import { ConfirmationPrompt } from "./confirmation-prompt";
 
 // Normalize message to always have parts array
@@ -22,21 +22,6 @@ function normalizeParts(message) {
 export function ChatMessage({ message, onApprove, onReject }) {
   const { role } = message;
   const parts = normalizeParts(message);
-
-  // Debug: only log assistant messages with content (reduce noise)
-  if (role === 'assistant' && parts.length > 0) {
-    console.log("[ChatMessage] Assistant:", {
-      id: message.id,
-      partsCount: parts.length,
-      parts: parts.map(p => ({
-        type: p.type,
-        text: p.text?.slice(0, 50),
-        toolName: p.toolName,
-        state: p.state,
-      })),
-    });
-  }
-
 
   if (role === "user") {
     return <UserMessage parts={parts} />;
@@ -89,6 +74,40 @@ function AssistantMessage({ parts, onApprove, onReject }) {
     return true;
   });
 
+  // Group consecutive tool calls with same toolName into batches
+  const groupedParts = [];
+  let currentToolGroup = null;
+
+  for (const part of dedupedParts) {
+    const isToolPart = part.type?.startsWith("tool-") || part.type === "dynamic-tool";
+    const toolName = part.toolName || part.type?.replace("tool-", "");
+    const hasOutput = part.state === "output-available";
+
+    // Check if we should group this with the previous tool calls
+    if (isToolPart && hasOutput && currentToolGroup && currentToolGroup.toolName === toolName) {
+      // Add to existing group
+      currentToolGroup.parts.push(part);
+    } else {
+      // Flush current group if exists
+      if (currentToolGroup) {
+        groupedParts.push(currentToolGroup);
+        currentToolGroup = null;
+      }
+
+      if (isToolPart && hasOutput) {
+        // Start new group
+        currentToolGroup = { type: "tool-group", toolName, parts: [part] };
+      } else {
+        // Non-groupable part
+        groupedParts.push(part);
+      }
+    }
+  }
+  // Flush final group
+  if (currentToolGroup) {
+    groupedParts.push(currentToolGroup);
+  }
+
   // Check if we have any text content
   const hasText = dedupedParts.some(p => p.type === 'text' && p.text?.trim());
   const hasToolResults = dedupedParts.some(p =>
@@ -98,14 +117,27 @@ function AssistantMessage({ parts, onApprove, onReject }) {
 
   return (
     <div className="space-y-2">
-      {dedupedParts.map((part, i) => (
-        <AssistantPart
-          key={part.toolCallId || part.id || `${i}-${part.type}`}
-          part={part}
-          onApprove={onApprove}
-          onReject={onReject}
-        />
-      ))}
+      {groupedParts.map((part, i) => {
+        // Render grouped tool calls
+        if (part.type === "tool-group") {
+          return (
+            <GroupedToolCallDisplay
+              key={`group-${i}-${part.toolName}`}
+              toolName={part.toolName}
+              parts={part.parts}
+            />
+          );
+        }
+        // Render single parts
+        return (
+          <AssistantPart
+            key={part.toolCallId || part.id || `${i}-${part.type}`}
+            part={part}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        );
+      })}
       {/* Show a subtle message if there's only tool output and no explanation */}
       {!hasText && hasToolResults && (
         <p className="text-white/30 text-xs italic mt-2">
@@ -181,12 +213,16 @@ function AssistantPart({ part, onApprove, onReject }) {
     }
 
     // Regular tool call display (input-streaming, input-available, output-available, output-error)
+    // Pass toolId and sourceId from output metadata for pagination support
+    const actionMeta = part.output?._actionchat;
     return (
       <ToolCallDisplay
         toolName={toolName}
         input={part.input}
         output={part.output}
         state={part.state}
+        toolId={actionMeta?.tool_id}
+        sourceId={actionMeta?.source_id}
       />
     );
   }

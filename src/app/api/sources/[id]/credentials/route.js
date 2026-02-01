@@ -5,7 +5,36 @@ import { cookies } from 'next/headers';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/sources/[id]/credentials - Check if user has credentials for this source
+ * Mask a credential value: show first 4 and last 4 chars
+ */
+function maskCredential(value) {
+  if (!value || typeof value !== 'string') return null;
+  if (value.length <= 8) return '****';
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+/**
+ * Build masked preview based on auth type
+ */
+function buildMaskedPreview(credentials, authType) {
+  if (!credentials) return null;
+  const c = credentials;
+  switch (authType) {
+    case 'bearer':
+      return maskCredential(c.token);
+    case 'api_key':
+      return maskCredential(c.api_key);
+    case 'basic':
+      return c.username ? `${c.username}:****` : null;
+    case 'header':
+      return c.header_name ? `${c.header_name}: ${maskCredential(c.header_value)}` : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * GET /api/sources/[id]/credentials - List all credentials for this source
  */
 export async function GET(request, { params }) {
   try {
@@ -32,20 +61,33 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    // Check if user has credentials
-    const { data: creds } = await supabase
+    // Get all credentials for this user+source
+    const { data: allCreds } = await supabase
       .from('user_api_credentials')
-      .select('id, created_at, updated_at')
+      .select('id, label, credentials, is_active, created_at, updated_at')
       .eq('user_id', user.id)
       .eq('source_id', id)
-      .single();
+      .order('is_active', { ascending: false })
+      .order('created_at', { ascending: true });
+
+    // Build response with masked previews
+    const credentials = (allCreds || []).map(cred => ({
+      id: cred.id,
+      label: cred.label,
+      masked_preview: buildMaskedPreview(cred.credentials, source.auth_type),
+      is_active: cred.is_active,
+      updated_at: cred.updated_at,
+    }));
+
+    const activeCred = credentials.find(c => c.is_active);
 
     return NextResponse.json({
       ok: true,
       source_id: id,
       auth_type: source.auth_type,
-      has_credentials: !!creds,
-      credentials_updated_at: creds?.updated_at || null,
+      credentials,
+      active_credential_id: activeCred?.id || null,
+      has_credentials: credentials.length > 0,
     });
   } catch (error) {
     console.error('[CREDENTIALS] GET Error:', error);
@@ -57,13 +99,8 @@ export async function GET(request, { params }) {
 }
 
 /**
- * POST /api/sources/[id]/credentials - Save user credentials for this source
- *
- * Body depends on auth_type:
- *   bearer: { token: "xxx" }
- *   api_key: { api_key: "xxx", header_name?: "X-API-Key" }
- *   basic: { username: "xxx", password: "xxx" }
- *   header: { header_name: "X-Custom", header_value: "xxx" }
+ * POST /api/sources/[id]/credentials - Add or update a credential
+ * Body: { label: "Production", token?: "xxx", api_key?: "xxx", ... }
  */
 export async function POST(request, { params }) {
   try {
@@ -91,6 +128,11 @@ export async function POST(request, { params }) {
     }
 
     const body = await request.json();
+    const label = (body.label || 'Default').trim();
+
+    if (!label) {
+      return NextResponse.json({ error: 'Label is required' }, { status: 400 });
+    }
 
     // Validate credentials based on auth_type
     const credentials = {};
@@ -124,26 +166,40 @@ export async function POST(request, { params }) {
         break;
       case 'none':
       case 'passthrough':
-        // No credentials needed
         break;
       default:
         return NextResponse.json({ error: `Unknown auth_type: ${source.auth_type}` }, { status: 400 });
     }
 
-    // Upsert credentials
-    const { error } = await supabase
+    // Deactivate all other credentials for this user+source
+    await supabase
+      .from('user_api_credentials')
+      .update({ is_active: false })
+      .eq('user_id', user.id)
+      .eq('source_id', id);
+
+    // Upsert the new/updated credential (active by default)
+    const { data: newCred, error } = await supabase
       .from('user_api_credentials')
       .upsert({
         user_id: user.id,
         source_id: id,
+        label,
         credentials,
+        is_active: true,
       }, {
-        onConflict: 'user_id,source_id',
-      });
+        onConflict: 'user_id,source_id,label',
+      })
+      .select('id')
+      .single();
 
     if (error) throw error;
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      credential_id: newCred.id,
+      label,
+    });
   } catch (error) {
     console.error('[CREDENTIALS] POST Error:', error);
     return NextResponse.json(
@@ -154,7 +210,64 @@ export async function POST(request, { params }) {
 }
 
 /**
- * DELETE /api/sources/[id]/credentials - Remove user credentials for this source
+ * PATCH /api/sources/[id]/credentials - Set active credential
+ * Body: { credential_id: "uuid" }
+ */
+export async function PATCH(request, { params }) {
+  try {
+    const { id } = await params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { credential_id } = body;
+
+    if (!credential_id) {
+      return NextResponse.json({ error: 'credential_id is required' }, { status: 400 });
+    }
+
+    // Verify this credential belongs to the user
+    const { data: cred } = await supabase
+      .from('user_api_credentials')
+      .select('id')
+      .eq('id', credential_id)
+      .eq('user_id', user.id)
+      .eq('source_id', id)
+      .single();
+
+    if (!cred) {
+      return NextResponse.json({ error: 'Credential not found' }, { status: 404 });
+    }
+
+    // Deactivate all, then activate the selected one
+    await supabase
+      .from('user_api_credentials')
+      .update({ is_active: false })
+      .eq('user_id', user.id)
+      .eq('source_id', id);
+
+    await supabase
+      .from('user_api_credentials')
+      .update({ is_active: true })
+      .eq('id', credential_id);
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('[CREDENTIALS] PATCH Error:', error);
+    return NextResponse.json(
+      { error: 'Failed to update credential', details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/sources/[id]/credentials - Remove a credential
+ * Query: ?credential_id=uuid (optional, deletes specific one)
+ * Without credential_id, deletes all for this source
  */
 export async function DELETE(request, { params }) {
   try {
@@ -165,13 +278,45 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { error } = await supabase
-      .from('user_api_credentials')
-      .delete()
-      .eq('user_id', user.id)
-      .eq('source_id', id);
+    const url = new URL(request.url);
+    const credentialId = url.searchParams.get('credential_id');
 
-    if (error) throw error;
+    if (credentialId) {
+      // Delete specific credential
+      const { error } = await supabase
+        .from('user_api_credentials')
+        .delete()
+        .eq('id', credentialId)
+        .eq('user_id', user.id)
+        .eq('source_id', id);
+
+      if (error) throw error;
+
+      // If we deleted the active one, activate the first remaining
+      const { data: remaining } = await supabase
+        .from('user_api_credentials')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('source_id', id)
+        .order('created_at', { ascending: true })
+        .limit(1);
+
+      if (remaining?.length > 0) {
+        await supabase
+          .from('user_api_credentials')
+          .update({ is_active: true })
+          .eq('id', remaining[0].id);
+      }
+    } else {
+      // Delete all credentials for this source
+      const { error } = await supabase
+        .from('user_api_credentials')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('source_id', id);
+
+      if (error) throw error;
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

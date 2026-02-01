@@ -23,7 +23,9 @@ import { useState } from "react";
 
 // Integration catalog data (subset for landing page)
 const FEATURED_USE_CASES = [
+  { action: "Move user to another org", integration: "Your API", category: "support", icon: Users },
   { action: "Refund a customer", integration: "Stripe", category: "payments", icon: CreditCard },
+  { action: "Merge duplicate accounts", integration: "Your API", category: "support", icon: Users },
   { action: "Send an SMS alert", integration: "Twilio", category: "communication", icon: MessageSquare },
   { action: "Create a GitHub issue", integration: "GitHub", category: "devops", icon: GitBranch },
   { action: "Post to Slack", integration: "Slack", category: "communication", icon: MessageSquare },
@@ -32,9 +34,7 @@ const FEATURED_USE_CASES = [
   { action: "Create a Jira ticket", integration: "Jira", category: "project_management", icon: Ticket },
   { action: "Send an email", integration: "SendGrid", category: "communication", icon: MessageSquare },
   { action: "Create a contact", integration: "HubSpot", category: "crm", icon: Users },
-  { action: "Query a database", integration: "PostgreSQL", category: "database", icon: Database },
-  { action: "Create a Notion page", integration: "Notion", category: "productivity", icon: Database },
-  { action: "Purge CDN cache", integration: "Cloudflare", category: "infrastructure", icon: Server },
+  { action: "Fix billing mismatch", integration: "Your API", category: "support", icon: CreditCard },
 ];
 
 const INTEGRATION_LOGOS = [
@@ -325,7 +325,7 @@ function HomeContent() {
             <div className="grid md:grid-cols-3 gap-6">
               <PersonaCard
                 title="Support Teams"
-                description="Refund customers, update tickets, and check order status without asking engineering."
+                description="Move users between orgs, merge accounts, fix billing mismatches—without an engineering ticket. Turn 45-minute escalations into 30-second conversations."
                 icon={MessageSquare}
               />
               <PersonaCard

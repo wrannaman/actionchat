@@ -405,6 +405,8 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
     // Skip credential prompt since creds were just saved during template install
     onAdd(source, { skipCredentialPrompt: true });
     loadAllSources();
+    // Close the dialog after successful install
+    onOpenChange(false);
   };
 
   return (
@@ -673,16 +675,13 @@ function ChatInterface({
     id: chatKeyRef.current,
     initialMessages: initialMessages || [],
     onResponse: async (response) => {
-      console.log('[CHAT] Response received, status:', response.status);
       // Capture chatId from response header
       const newChatId = response.headers.get("X-Chat-Id");
       if (newChatId && newChatId !== chatIdRef.current) {
-        console.log('[CHAT] New chat ID from header:', newChatId);
         pendingChatIdRef.current = newChatId;
       }
     },
-    onFinish: (message) => {
-      console.log('[CHAT] Stream finished, parts:', message?.message?.parts?.length);
+    onFinish: () => {
       // Apply pending chat ID after stream is complete
       if (pendingChatIdRef.current) {
         chatIdRef.current = pendingChatIdRef.current;
@@ -692,18 +691,10 @@ function ChatInterface({
       }
     },
     onError: (err) => {
-      console.error('[CHAT] Error:', err?.message);
       toast.error(err.message || "Chat failed - check your API key in settings");
     },
   });
 
-  // Debug: log messages array changes
-  useEffect(() => {
-    console.log('[CHAT] messages array updated:', messages.length, 'messages');
-    if (messages.length > 0) {
-      console.log('[CHAT] Messages:', messages.map(m => ({ id: m.id, role: m.role, partsCount: m.parts?.length })));
-    }
-  }, [messages]);
 
 
   const isLoading = status === 'streaming' || status === 'submitted' || executing;
@@ -790,8 +781,6 @@ function ChatInterface({
       toast.info("Unknown command, sending as message");
     }
 
-    console.log('[CHAT] Calling sendMessage with text:', input);
-    console.log('[CHAT] Current messages before send:', messages.length);
     sendMessage(
       { text: input },
       { body: { agentId, chatId: currentChatId } }
@@ -801,9 +790,7 @@ function ChatInterface({
 
   // Load messages when initialMessages change (switching chats)
   useEffect(() => {
-    console.log("[ChatInterface] initialMessages changed:", initialMessages?.length, initialMessages);
     if (initialMessages && initialMessages.length > 0) {
-      console.log("[ChatInterface] Calling setMessages with:", initialMessages);
       setMessages(initialMessages);
     }
   }, [initialMessages, setMessages]);
@@ -826,22 +813,40 @@ function ChatInterface({
               </p>
             </div>
           ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              >
+            messages
+              .filter((message) => {
+                // Filter out empty messages (assistant with no parts yet)
+                const parts = message.parts || [];
+                if (message.role === 'assistant' && parts.length === 0) {
+                  return false;
+                }
+                // Filter out assistant messages with only empty text parts
+                if (message.role === 'assistant') {
+                  const hasContent = parts.some(p =>
+                    (p.type === 'text' && p.text?.trim()) ||
+                    p.type?.startsWith('tool-') ||
+                    p.type === 'dynamic-tool'
+                  );
+                  return hasContent;
+                }
+                return true;
+              })
+              .map((message) => (
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 overflow-x-auto ${
-                    message.role === "user"
-                      ? "bg-blue-500 text-white"
-                      : "bg-white/5 border border-white/10 text-white/90"
-                  }`}
+                  key={message.id}
+                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  <ChatMessage message={message} />
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-3 overflow-x-auto ${
+                      message.role === "user"
+                        ? "bg-blue-500 text-white"
+                        : "bg-white/5 border border-white/10 text-white/90"
+                    }`}
+                  >
+                    <ChatMessage message={message} />
+                  </div>
                 </div>
-              </div>
-            ))
+              ))
           )}
 
           {isLoading && (
@@ -1003,15 +1008,11 @@ function ChatContent({ initialChatId }) {
   };
 
   const loadChat = async (chatId) => {
-    console.log("[loadChat] Loading chat:", chatId);
     setLoadingMessages(true);
     try {
       const res = await cachedFetch(`/api/workspace/chats/${chatId}`, {}, { ttlMs: 5000 });
-      console.log("[loadChat] Response status:", res.status);
       if (res.ok) {
         const data = await res.json();
-        console.log("[loadChat] Got data:", data);
-        console.log("[loadChat] Messages:", data.messages?.length, data.messages);
         setCurrentChatId(chatId);
         setCurrentMessages(data.messages || []);
       } else {

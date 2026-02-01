@@ -82,12 +82,13 @@ export async function POST(request) {
       });
     }
 
-    // Get user credentials for this source
+    // Get user credentials for this source (active credential only)
     const { data: credentials } = await supabase
       .from('user_api_credentials')
       .select('credentials')
       .eq('user_id', user.id)
       .eq('source_id', source.id)
+      .eq('is_active', true)
       .single();
 
     // Execute the tool
@@ -240,12 +241,13 @@ export async function PUT(request) {
 
     const source = tool.api_sources;
 
-    // Get user credentials
+    // Get user credentials (active only)
     const { data: credentials } = await supabase
       .from('user_api_credentials')
       .select('credentials')
       .eq('user_id', action.user_id)
       .eq('source_id', source.id)
+      .eq('is_active', true)
       .single();
 
     // Update to executing

@@ -92,6 +92,14 @@ class HTTPMCPConnection extends EventEmitter {
       headers['Mcp-Session-Id'] = this.sessionId;
     }
 
+    console.log('[MCP HTTP] ────────────────────────────────────────');
+    console.log('[MCP HTTP] URL:', mcp_server_uri);
+    console.log('[MCP HTTP] Method:', method);
+    console.log('[MCP HTTP] Has auth token:', !!mcp_auth_token);
+    console.log('[MCP HTTP] Session ID:', this.sessionId || '(none)');
+    console.log('[MCP HTTP] Request body:', JSON.stringify(request, null, 2));
+    console.log('[MCP HTTP] ────────────────────────────────────────');
+
     try {
       const response = await fetch(mcp_server_uri, {
         method: 'POST',
@@ -99,19 +107,27 @@ class HTTPMCPConnection extends EventEmitter {
         body: JSON.stringify(request),
       });
 
+      console.log('[MCP HTTP] Response status:', response.status, response.statusText);
+
       // Capture session ID from response headers
       const newSessionId = response.headers.get('Mcp-Session-Id');
       if (newSessionId) {
         this.sessionId = newSessionId;
+        console.log('[MCP HTTP] New session ID:', newSessionId);
       }
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[MCP HTTP] Error response:', errorText.slice(0, 1000));
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const result = await response.json();
 
+      console.log('[MCP HTTP] Response JSON:', JSON.stringify(result, null, 2).slice(0, 8000));
+
       if (result.error) {
+        console.error('[MCP HTTP] JSON-RPC error:', result.error);
         throw new Error(result.error.message || 'MCP error');
       }
 

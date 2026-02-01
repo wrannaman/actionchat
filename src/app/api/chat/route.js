@@ -121,16 +121,24 @@ export async function POST(request) {
       messages,
       tools,
       temperature: agent.temperature ?? 0.1,
-      onFinish: async ({ text, steps, usage }) => {
+      onFinish: async (event) => {
+        console.log('[CHAT onFinish] ════════════════════════════════');
+        console.log('[CHAT onFinish] text:', JSON.stringify(event.text)?.slice(0, 500));
+        console.log('[CHAT onFinish] text length:', event.text?.length);
+        console.log('[CHAT onFinish] steps:', event.steps?.length);
+        console.log('[CHAT onFinish] finishReason:', event.finishReason);
+        console.log('[CHAT onFinish] event keys:', Object.keys(event));
+        console.log('[CHAT onFinish] ════════════════════════════════');
+
         await saveConversation(supabase, {
           chatId,
           orgId,
           agentId,
           userId: user.id,
           messages,
-          text,
-          steps,
-          usage,
+          text: event.text,
+          steps: event.steps,
+          usage: event.usage,
           agent,
         });
       },

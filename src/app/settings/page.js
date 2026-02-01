@@ -112,6 +112,8 @@ function SettingsContent() {
         body: JSON.stringify({ settings }),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
         toast.success("Settings saved");
         setApiKey(""); // Clear the key field
@@ -120,10 +122,10 @@ function SettingsContent() {
           setKeyStatus(prev => ({ ...prev, [provider]: true }));
         }
       } else {
-        toast.error("Failed to save");
+        toast.error(data.error || "Failed to save");
       }
-    } catch {
-      toast.error("Failed to save");
+    } catch (err) {
+      toast.error(err.message || "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -236,8 +238,14 @@ function SettingsContent() {
                 disabled={saving || !model}
                 className="w-full bg-blue-500 hover:bg-blue-400"
               >
-                {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Save
+                {saving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    {apiKey.trim() ? "Validating..." : "Saving..."}
+                  </>
+                ) : (
+                  "Save"
+                )}
               </Button>
             </CardContent>
           </Card>

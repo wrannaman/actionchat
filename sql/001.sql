@@ -145,15 +145,18 @@ CREATE TABLE user_api_credentials (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   source_id UUID NOT NULL REFERENCES api_sources(id) ON DELETE CASCADE,
+  label TEXT NOT NULL DEFAULT 'Default',    -- user-defined label, e.g. "Production", "Test", "Staging"
   credentials JSONB NOT NULL DEFAULT '{}',  -- { token: "xxx" } or { api_key: "xxx" } or { username, password }
+  is_active BOOLEAN NOT NULL DEFAULT true,  -- which credential to use (only one active per user+source)
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(user_id, source_id)
+  UNIQUE(user_id, source_id, label)         -- prevent duplicate labels per user+source
 );
 CREATE TRIGGER trg_user_api_credentials BEFORE UPDATE ON user_api_credentials FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE INDEX idx_uac_user ON user_api_credentials(user_id);
 CREATE INDEX idx_uac_source ON user_api_credentials(source_id);
-COMMENT ON TABLE user_api_credentials IS 'Per-user credentials for API sources. Each user has their own token/key for each API.';
+CREATE INDEX idx_uac_active ON user_api_credentials(user_id, source_id, is_active) WHERE is_active = true;
+COMMENT ON TABLE user_api_credentials IS 'Per-user credentials for API sources. Supports multiple credentials per source with labels (e.g. Test/Prod).';
 
 -- ============================================================================
 -- 6. TOOLS — individual API endpoints parsed from spec or manually defined

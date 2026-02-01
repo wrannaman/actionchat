@@ -67,7 +67,7 @@ const PROVIDERS = {
     name: 'Google (Gemini)',
     create: (config) => createGoogleGenerativeAI(config),
     keyField: 'google_generative_ai_api_key',
-    defaultModel: 'gemini-2.0-pro',
+    defaultModel: 'gemini-3-pro',
     capabilities: { tools: true, vision: true, streaming: true },
   },
 
@@ -173,11 +173,8 @@ export async function chat({
     throw new Error('messages array is required');
   }
 
-  console.log('[AI] RAW MESSAGES:', JSON.stringify(messages, null, 2));
-
   // Convert UI messages → model messages
   const modelMessages = await convertToModelMessages(messages);
-  console.log('[AI] CONVERTED:', modelMessages.length);
 
   // Determine if we have tools
   const hasTools = tools && Object.keys(tools).length > 0;
@@ -201,8 +198,6 @@ export async function chat({
     options.temperature = temperature;
   }
 
-  console.log('[AI] Calling streamText, isReasoningModel:', isReasoningModel);
-
   // Stream the response
   return streamText(options);
 }
@@ -210,25 +205,9 @@ export async function chat({
 /**
  * Create streaming response for Next.js API routes.
  */
-export function toStreamResponse(result, { messages, headers = {} } = {}) {
-  console.log('[AI] Creating stream response');
-  console.log('[AI] Result methods:', Object.keys(result));
-
-  // Try different response methods based on AI SDK version
-  let response;
-  if (typeof result.toTextStreamResponse === 'function') {
-    console.log('[AI] Using toTextStreamResponse');
-    response = result.toTextStreamResponse();
-  } else if (typeof result.toDataStream === 'function') {
-    console.log('[AI] Using toDataStream');
-    response = new Response(result.toDataStream());
-  } else if (typeof result.textStream === 'object') {
-    console.log('[AI] Using textStream directly');
-    response = new Response(result.textStream);
-  } else {
-    console.error('[AI] No valid stream method found on result');
-    throw new Error('No valid stream method on result');
-  }
+export function toStreamResponse(result, { headers = {} } = {}) {
+  // toUIMessageStreamResponse is the correct method for useChat
+  const response = result.toUIMessageStreamResponse();
 
   for (const [key, value] of Object.entries(headers)) {
     response.headers.set(key, value);
@@ -275,8 +254,8 @@ const MODELS = {
     { id: 'claude-haiku-4-20250514', name: 'Claude Haiku 4', fast: true },
   ],
   google: [
-    { id: 'gemini-2.0-pro', name: 'Gemini 2.0 Pro', recommended: true },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', fast: true },
+    { id: 'gemini-3-pro', name: 'Gemini 3 Pro', recommended: true },
+    { id: 'gemini-3-flash', name: 'Gemini 3 Flash', fast: true },
   ],
   ollama: [
     { id: 'llama4', name: 'Llama 4', recommended: true },

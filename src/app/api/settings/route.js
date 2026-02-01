@@ -6,6 +6,94 @@ import { getPermissions, requireMember, requireAdmin } from '@/utils/permissions
 
 export const dynamic = 'force-dynamic';
 
+// ============================================================================
+// API KEY VALIDATION
+// ============================================================================
+
+/**
+ * Validate an OpenAI API key by calling their models endpoint
+ */
+async function validateOpenAIKey(apiKey) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/models', {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (res.status === 401) return { valid: false, error: 'Invalid API key' };
+    if (res.status === 403) return { valid: false, error: 'API key lacks permissions' };
+    if (!res.ok) return { valid: false, error: `API error: ${res.status}` };
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: `Connection failed: ${err.message}` };
+  }
+}
+
+/**
+ * Validate an Anthropic API key by calling their models endpoint
+ */
+async function validateAnthropicKey(apiKey) {
+  try {
+    // Anthropic doesn't have a /models endpoint, so we use a minimal messages call
+    // that will fail fast if the key is invalid
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
+    });
+    // 401 = invalid key, 400 = valid key (might be other error but key works)
+    if (res.status === 401) return { valid: false, error: 'Invalid API key' };
+    if (res.status === 403) return { valid: false, error: 'API key lacks permissions' };
+    // Any other response means the key is valid (even if the request itself fails)
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: `Connection failed: ${err.message}` };
+  }
+}
+
+/**
+ * Validate a Google AI API key
+ */
+async function validateGoogleKey(apiKey) {
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+    );
+    if (res.status === 400 || res.status === 403) {
+      return { valid: false, error: 'Invalid API key' };
+    }
+    if (!res.ok) return { valid: false, error: `API error: ${res.status}` };
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: `Connection failed: ${err.message}` };
+  }
+}
+
+/**
+ * Validate an Ollama connection
+ */
+async function validateOllamaUrl(baseUrl) {
+  try {
+    const url = baseUrl.replace(/\/$/, '');
+    const res = await fetch(`${url}/api/tags`, { method: 'GET' });
+    if (!res.ok) return { valid: false, error: `Ollama not responding: ${res.status}` };
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: `Cannot connect to Ollama: ${err.message}` };
+  }
+}
+
+// ============================================================================
+// SETTINGS CONFIG
+// ============================================================================
+
 // Settings keys that are allowed to be stored
 const ALLOWED_KEYS = [
   'openai_api_key',
@@ -145,6 +233,47 @@ export async function POST(request) {
     // Merge settings — only update provided keys, preserve others
     if (body.settings) {
       const newSettings = { ...currentSettings };
+
+      // Validate API keys before saving
+      if (body.settings.openai_api_key) {
+        const result = await validateOpenAIKey(body.settings.openai_api_key);
+        if (!result.valid) {
+          return NextResponse.json(
+            { error: `OpenAI key validation failed: ${result.error}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (body.settings.anthropic_api_key) {
+        const result = await validateAnthropicKey(body.settings.anthropic_api_key);
+        if (!result.valid) {
+          return NextResponse.json(
+            { error: `Anthropic key validation failed: ${result.error}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (body.settings.google_generative_ai_api_key) {
+        const result = await validateGoogleKey(body.settings.google_generative_ai_api_key);
+        if (!result.valid) {
+          return NextResponse.json(
+            { error: `Google AI key validation failed: ${result.error}` },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (body.settings.ollama_base_url) {
+        const result = await validateOllamaUrl(body.settings.ollama_base_url);
+        if (!result.valid) {
+          return NextResponse.json(
+            { error: `Ollama validation failed: ${result.error}` },
+            { status: 400 }
+          );
+        }
+      }
 
       for (const key of ALLOWED_KEYS) {
         if (body.settings[key] !== undefined) {

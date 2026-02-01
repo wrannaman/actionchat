@@ -45,11 +45,12 @@ export async function loadAgentTools(supabase, agentId, userId) {
     `)
     .in('id', sourceIds);
 
-  // Load user credentials for these sources
+  // Load user credentials for these sources (only active ones)
   const { data: creds } = await supabase
     .from('user_api_credentials')
     .select('source_id, credentials')
     .eq('user_id', userId)
+    .eq('is_active', true)
     .in('source_id', sourceIds);
 
   // Build lookup maps

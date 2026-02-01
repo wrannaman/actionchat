@@ -226,14 +226,22 @@ export async function POST(request, { params }) {
 
     if (sourceError) throw sourceError;
 
-    // Save user credentials
+    // Save user credentials (deactivate others first, then add this one as active)
+    await supabase
+      .from('user_api_credentials')
+      .update({ is_active: false })
+      .eq('user_id', user.id)
+      .eq('source_id', source.id);
+
     const { error: credError } = await supabase.from('user_api_credentials').upsert(
       {
         user_id: user.id,
         source_id: source.id,
+        label: 'Default',
         credentials: formattedCredentials,
+        is_active: true,
       },
-      { onConflict: 'user_id,source_id' }
+      { onConflict: 'user_id,source_id,label' }
     );
 
     if (credError) {
@@ -271,15 +279,18 @@ export async function POST(request, { params }) {
     }
 
     // Link source to user's workspace agent
-    const { data: agent } = await supabase
+    const { data: agent, error: agentError } = await supabase
       .from('agents')
       .select('id')
       .eq('org_id', orgId)
-      .eq('name', 'Workspace')
+      .eq('name', '__workspace__')
       .single();
 
+    console.log('[TEMPLATES] Looking for workspace agent in org:', orgId);
+    console.log('[TEMPLATES] Found agent:', agent?.id, '| Error:', agentError?.message);
+
     if (agent) {
-      await supabase.from('agent_sources').upsert(
+      const { error: linkError } = await supabase.from('agent_sources').upsert(
         {
           agent_id: agent.id,
           source_id: source.id,
@@ -287,6 +298,9 @@ export async function POST(request, { params }) {
         },
         { onConflict: 'agent_id,source_id' }
       );
+      console.log('[TEMPLATES] Linked source to agent:', linkError ? linkError.message : 'OK');
+    } else {
+      console.error('[TEMPLATES] No workspace agent found! Source will not be usable.');
     }
 
     return NextResponse.json(

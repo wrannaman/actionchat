@@ -98,12 +98,13 @@ export async function POST(request) {
       });
     }
 
-    // Get user credentials for this source
+    // Get user credentials for this source (active only)
     const { data: credentials } = await supabase
       .from('user_api_credentials')
       .select('credentials')
       .eq('user_id', user.id)
       .eq('source_id', source.id)
+      .eq('is_active', true)
       .single();
 
     // Execute the tool

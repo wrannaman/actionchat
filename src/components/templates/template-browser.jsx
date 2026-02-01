@@ -234,8 +234,6 @@ function CredentialForm({ template, onSubmit, loading }) {
 
 function InstallDialog({ template, open, onOpenChange, onSuccess }) {
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [result, setResult] = useState(null);
 
   const handleInstall = async (data) => {
     setLoading(true);
@@ -249,9 +247,10 @@ function InstallDialog({ template, open, onOpenChange, onSuccess }) {
       const json = await res.json();
 
       if (res.ok) {
-        setSuccess(true);
-        setResult(json);
-        toast.success(json.message || `${template.name} connected`);
+        const toolCount = json.source?.tool_count || 0;
+        toast.success(`${template.name} connected — ${toolCount} endpoints ready`);
+        onSuccess?.(json.source);
+        onOpenChange(false);
       } else {
         toast.error(json.error || "Failed to install");
       }
@@ -262,21 +261,12 @@ function InstallDialog({ template, open, onOpenChange, onSuccess }) {
     }
   };
 
-  const handleClose = () => {
-    if (success && result) {
-      onSuccess?.(result.source);
-    }
-    setSuccess(false);
-    setResult(null);
-    onOpenChange(false);
-  };
-
   if (!template) return null;
 
   const isMcp = template.type === "mcp";
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#0d0d12] border-white/10 text-white max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
@@ -306,54 +296,37 @@ function InstallDialog({ template, open, onOpenChange, onSuccess }) {
           </DialogDescription>
         </DialogHeader>
 
-        {success ? (
-          <div className="py-6 text-center">
-            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
-              <Check className="w-8 h-8 text-green-400" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Connected!</h3>
-            <p className="text-white/50 text-sm mb-4">
-              {result?.source?.tool_count || 0} endpoints available
-            </p>
-            <Button onClick={handleClose} className="bg-white/10 hover:bg-white/15">
-              Done
-            </Button>
+        {/* Use cases preview */}
+        <div className="mb-4 p-3 bg-white/[0.02] rounded-lg border border-white/5">
+          <p className="text-xs text-white/40 mb-2">What you can do:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {template.use_cases.slice(0, 4).map((uc, i) => (
+              <span
+                key={i}
+                className="px-2 py-1 bg-white/5 rounded text-xs text-white/60"
+              >
+                {uc}
+              </span>
+            ))}
           </div>
-        ) : (
-          <>
-            {/* Use cases preview */}
-            <div className="mb-4 p-3 bg-white/[0.02] rounded-lg border border-white/5">
-              <p className="text-xs text-white/40 mb-2">What you can do:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {template.use_cases.slice(0, 4).map((uc, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-1 bg-white/5 rounded text-xs text-white/60"
-                  >
-                    {uc}
-                  </span>
-                ))}
-              </div>
-            </div>
+        </div>
 
-            {/* Credential form */}
-            <CredentialForm template={template} onSubmit={handleInstall} loading={loading} />
+        {/* Credential form */}
+        <CredentialForm template={template} onSubmit={handleInstall} loading={loading} />
 
-            {/* Docs link */}
-            {template.docs_url && (
-              <div className="text-center pt-2">
-                <a
-                  href={template.docs_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-white/30 hover:text-cyan-400 inline-flex items-center gap-1"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  View {template.name} docs
-                </a>
-              </div>
-            )}
-          </>
+        {/* Docs link */}
+        {template.docs_url && (
+          <div className="text-center pt-2">
+            <a
+              href={template.docs_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-white/30 hover:text-cyan-400 inline-flex items-center gap-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              View {template.name} docs
+            </a>
+          </div>
         )}
       </DialogContent>
     </Dialog>

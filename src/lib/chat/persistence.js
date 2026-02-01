@@ -49,6 +49,17 @@ export async function saveConversation(supabase, {
   usage,     // Token usage
   agent,     // Agent config
 }) {
+  console.log('[PERSIST] ════════════════════════════════════════');
+  console.log('[PERSIST] chatId:', chatId);
+  console.log('[PERSIST] text:', JSON.stringify(text));
+  console.log('[PERSIST] text length:', text?.length);
+  console.log('[PERSIST] steps count:', steps?.length);
+  console.log('[PERSIST] messages count:', messages?.length);
+  if (steps?.length) {
+    console.log('[PERSIST] steps:', JSON.stringify(steps, null, 2).slice(0, 2000));
+  }
+  console.log('[PERSIST] ════════════════════════════════════════');
+
   if (!chatId) return;
 
   try {
@@ -68,12 +79,24 @@ export async function saveConversation(supabase, {
     // 2. Save assistant message
     const toolCalls = extractToolCalls(steps);
 
+    // Get text from direct text OR from steps (multi-step responses)
+    let responseText = text || '';
+    if (!responseText && steps?.length) {
+      // Extract text from all steps
+      const stepTexts = [];
+      for (const step of steps) {
+        if (step.text) stepTexts.push(step.text);
+      }
+      responseText = stepTexts.join('\n\n');
+      console.log('[PERSIST] Extracted text from steps:', responseText?.slice(0, 200));
+    }
+
     const { data: assistantMsg, error } = await supabase
       .from('messages')
       .insert({
         chat_id: chatId,
         role: 'assistant',
-        content: text || '',
+        content: responseText,
         tool_calls: toolCalls.length ? toolCalls : null,
         metadata: {
           usage,

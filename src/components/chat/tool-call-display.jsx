@@ -1,9 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, Download, Copy, Check, User, CreditCard, Calendar, Hash } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  Download,
+  Copy,
+  Check,
+  User,
+  CreditCard,
+  Calendar,
+  Hash,
+  Loader2,
+  ChevronsRight,
+} from "lucide-react";
 import { toast } from "sonner";
+import { detectPagination, buildNextPageParams, getPaginationDisplayInfo } from "@/lib/pagination";
 
 const METHOD_COLORS = {
   GET: "border-green-500/30 text-green-400 bg-green-500/10",
@@ -214,8 +228,30 @@ function SmartValue({ keyName, value }) {
   return <span className="text-white/50">{String(value)}</span>;
 }
 
+// Format nested objects for display
+function formatNestedValue(key, value, item) {
+  // Handle recurring interval specially
+  if (key === "recurring" && value && typeof value === "object") {
+    if (value.interval) {
+      const count = value.interval_count || 1;
+      const interval = value.interval;
+      if (count === 1) return interval === "month" ? "monthly" : interval === "year" ? "yearly" : interval;
+      return `every ${count} ${interval}s`;
+    }
+    return null;
+  }
+
+  // Handle amount with currency from same row
+  if (key === "amount" && typeof value === "number") {
+    const currency = item?.currency || "usd";
+    return formatCurrency(value, currency);
+  }
+
+  return null;
+}
+
 // Data table for arrays of objects
-function DataTable({ data, maxRows = 5 }) {
+function DataTable({ data, maxRows = 8 }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!Array.isArray(data) || data.length === 0) return null;
@@ -226,34 +262,46 @@ function DataTable({ data, maxRows = 5 }) {
   ))];
 
   // Prioritize common fields, limit columns
-  const priorityKeys = ["id", "name", "email", "status", "amount", "created", "created_at"];
+  const priorityKeys = ["id", "name", "email", "status", "amount", "currency", "type", "recurring", "interval", "product", "created", "created_at"];
+  // Skip currency as a column since we show it with amount
+  const skipKeys = ["currency"];
   const sortedKeys = [
-    ...priorityKeys.filter(k => allKeys.includes(k)),
-    ...allKeys.filter(k => !priorityKeys.includes(k))
-  ].slice(0, 5);
+    ...priorityKeys.filter(k => allKeys.includes(k) && !skipKeys.includes(k)),
+    ...allKeys.filter(k => !priorityKeys.includes(k) && !skipKeys.includes(k))
+  ].slice(0, 6);
 
   const displayData = expanded ? data : data.slice(0, maxRows);
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto -mx-1">
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-white/10">
             {sortedKeys.map(key => (
-              <th key={key} className="text-left text-white/40 font-medium py-1.5 px-2 first:pl-0">
-                {key}
+              <th key={key} className="text-left text-white/40 font-medium py-2 px-2 first:pl-1 whitespace-nowrap">
+                {key.replace(/_/g, " ")}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {displayData.map((item, i) => (
-            <tr key={i} className="border-b border-white/5 last:border-0">
-              {sortedKeys.map(key => (
-                <td key={key} className="py-1.5 px-2 first:pl-0">
-                  <SmartValue keyName={key} value={item?.[key]} />
-                </td>
-              ))}
+            <tr key={i} className="border-b border-white/5 last:border-0 hover:bg-white/[0.02]">
+              {sortedKeys.map(key => {
+                const value = item?.[key];
+                const formatted = formatNestedValue(key, value, item);
+                return (
+                  <td key={key} className="py-2 px-2 first:pl-1">
+                    {formatted !== null ? (
+                      <span className={key === "amount" ? "text-green-400 font-medium" : "text-white/70"}>
+                        {formatted}
+                      </span>
+                    ) : (
+                      <SmartValue keyName={key} value={value} />
+                    )}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -264,9 +312,9 @@ function DataTable({ data, maxRows = 5 }) {
           className="text-blue-400 hover:text-blue-300 text-[10px] mt-2 flex items-center gap-1"
         >
           {expanded ? (
-            <><ChevronDown className="h-3 w-3" /> show less</>
+            <><ChevronDown className="h-3 w-3" /> Show less</>
           ) : (
-            <><ChevronRight className="h-3 w-3" /> +{data.length - maxRows} more</>
+            <><ChevronRight className="h-3 w-3" /> Show all {data.length} rows</>
           )}
         </button>
       )}
@@ -276,8 +324,23 @@ function DataTable({ data, maxRows = 5 }) {
 
 // Smart result renderer
 function SmartResult({ data }) {
-  // Handle wrapped result
-  const result = data?.result !== undefined ? data.result : data;
+  // Priority: use _actionchat.response_body (already parsed) over result (often stringified)
+  let result;
+  if (data?._actionchat?.response_body !== undefined) {
+    result = data._actionchat.response_body;
+  } else if (data?.result !== undefined) {
+    result = data.result;
+    // If result is a JSON string, parse it
+    if (typeof result === "string" && (result.startsWith("[") || result.startsWith("{"))) {
+      try {
+        result = JSON.parse(result);
+      } catch {
+        // Keep as string if parse fails
+      }
+    }
+  } else {
+    result = data;
+  }
 
   // Empty states
   if (result === null || result === undefined) {
@@ -351,21 +414,197 @@ function LoadingSkeleton() {
   );
 }
 
-export function ToolCallDisplay({ toolName, input, output, state }) {
+export function ToolCallDisplay({ toolName, input, output, state, toolId, sourceId }) {
   const [showRaw, setShowRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  // Extract method and path from tool name/description
-  const methodMatch = toolName?.match(/\((GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([^)]+)\)/);
-  const method = methodMatch?.[1] || "";
-  const path = methodMatch?.[2] || "";
+  // Pagination state
+  const [pages, setPages] = useState({}); // { 1: data, 2: data, ... }
+  const [currentPage, setCurrentPage] = useState(1);
+  const [paginationMeta, setPaginationMeta] = useState(null);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
+  const [viewMode, setViewMode] = useState("current"); // "current" | "all"
+
+  // Extract method and path - check _actionchat first (for MCP), then parse tool name
+  const actionMeta = output?._actionchat;
+  let method = "";
+  let path = "";
+  let displayName = toolName;
+
+  if (actionMeta) {
+    method = actionMeta.method || "";
+    if (actionMeta.tool_name) {
+      displayName = actionMeta.tool_name;
+    }
+    if (actionMeta.url?.startsWith("mcp://")) {
+      path = actionMeta.url.replace("mcp://", "");
+    } else {
+      path = actionMeta.url || "";
+    }
+  } else {
+    const methodMatch = toolName?.match(/\((GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+([^)]+)\)/);
+    method = methodMatch?.[1] || "";
+    path = methodMatch?.[2] || "";
+  }
 
   const hasOutput = state === "output-available" && output;
   const hasError = state === "output-error";
   const isLoading = state === "input-streaming" || state === "input-available";
 
-  // Get raw JSON for download
-  const rawJson = hasOutput ? JSON.stringify(output?.result ?? output, null, 2) : "";
+  // Get the actual data and detect pagination
+  const actualData = output?._actionchat?.response_body ?? output?.result ?? output;
+
+  // Initialize pagination on first render with output
+  useMemo(() => {
+    if (hasOutput && Object.keys(pages).length === 0) {
+      const pagination = detectPagination(actualData, input);
+      if (pagination) {
+        setPaginationMeta(pagination);
+        // Extract just the data array for the page cache
+        const dataArray = extractDataArrayFromResponse(actualData);
+        setPages({ 1: dataArray });
+      }
+    }
+  }, [hasOutput, actualData, input]);
+
+  // Get current display data
+  const currentPageData = useMemo(() => {
+    if (viewMode === "all") {
+      // Combine all cached pages
+      const allData = [];
+      const sortedPages = Object.keys(pages).map(Number).sort((a, b) => a - b);
+      for (const pageNum of sortedPages) {
+        if (Array.isArray(pages[pageNum])) {
+          allData.push(...pages[pageNum]);
+        }
+      }
+      return allData.length > 0 ? allData : actualData;
+    }
+    return pages[currentPage] || actualData;
+  }, [viewMode, pages, currentPage, actualData]);
+
+  const rawJson = hasOutput ? JSON.stringify(currentPageData, null, 2) : "";
   const isJson = rawJson.startsWith("{") || rawJson.startsWith("[");
+  const rowCount = Array.isArray(currentPageData) ? currentPageData.length : null;
+  const duration = actionMeta?.duration_ms;
+
+  // Calculate total loaded items
+  const totalLoadedItems = useMemo(() => {
+    return Object.values(pages).reduce((sum, pageData) => {
+      return sum + (Array.isArray(pageData) ? pageData.length : 0);
+    }, 0);
+  }, [pages]);
+
+  const loadedPageCount = Object.keys(pages).length;
+
+  // Fetch next page silently
+  const fetchNextPage = useCallback(async () => {
+    if (!paginationMeta?.hasMore || isLoadingPage) return;
+    if (!toolId && !actionMeta?.tool_id) {
+      toast.error("Cannot paginate: tool ID not available");
+      return;
+    }
+
+    setIsLoadingPage(true);
+
+    try {
+      const nextParams = buildNextPageParams(paginationMeta, input);
+      const response = await fetch("/api/tools/paginate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toolId: toolId || actionMeta?.tool_id,
+          sourceId: sourceId || actionMeta?.source_id,
+          input: nextParams,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Failed to fetch page");
+      }
+
+      const result = await response.json();
+      const newData = result.output?._actionchat?.response_body ?? result.output;
+      const newDataArray = extractDataArrayFromResponse(newData);
+
+      // Detect pagination for the new page
+      const newPagination = detectPagination(newData, nextParams);
+
+      // Update state
+      const nextPageNum = loadedPageCount + 1;
+      setPages((prev) => ({ ...prev, [nextPageNum]: newDataArray }));
+      setCurrentPage(nextPageNum);
+
+      if (newPagination) {
+        setPaginationMeta(newPagination);
+      } else {
+        // No more pages
+        setPaginationMeta((prev) => ({ ...prev, hasMore: false }));
+      }
+    } catch (error) {
+      console.error("[Pagination] Error:", error);
+      toast.error(error.message || "Failed to load next page");
+    } finally {
+      setIsLoadingPage(false);
+    }
+  }, [paginationMeta, isLoadingPage, toolId, sourceId, actionMeta, input, loadedPageCount]);
+
+  // Fetch all remaining pages
+  const fetchAllPages = useCallback(async () => {
+    if (!paginationMeta?.hasMore || isLoadingPage) return;
+
+    setIsLoadingPage(true);
+    let currentMeta = paginationMeta;
+    let pageNum = loadedPageCount;
+    let currentInput = input;
+    const maxPages = 20; // Safety limit
+
+    try {
+      while (currentMeta?.hasMore && pageNum < maxPages) {
+        const nextParams = buildNextPageParams(currentMeta, currentInput);
+
+        const response = await fetch("/api/tools/paginate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            toolId: toolId || actionMeta?.tool_id,
+            sourceId: sourceId || actionMeta?.source_id,
+            input: nextParams,
+          }),
+        });
+
+        if (!response.ok) break;
+
+        const result = await response.json();
+        const newData = result.output?._actionchat?.response_body ?? result.output;
+        const newDataArray = extractDataArrayFromResponse(newData);
+
+        pageNum++;
+        setPages((prev) => ({ ...prev, [pageNum]: newDataArray }));
+
+        currentMeta = detectPagination(newData, nextParams);
+        currentInput = nextParams;
+
+        if (!currentMeta?.hasMore) break;
+      }
+
+      setPaginationMeta((prev) => ({ ...prev, hasMore: currentMeta?.hasMore || false }));
+      setViewMode("all");
+    } catch (error) {
+      console.error("[Pagination] Fetch all error:", error);
+      toast.error("Failed to load all pages");
+    } finally {
+      setIsLoadingPage(false);
+    }
+  }, [paginationMeta, isLoadingPage, loadedPageCount, toolId, sourceId, actionMeta, input]);
+
+  const handleCopyJson = async () => {
+    await navigator.clipboard.writeText(rawJson);
+    setCopied(true);
+    toast.success("Copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleDownload = () => {
     const blob = new Blob([rawJson], { type: "application/json" });
@@ -383,25 +622,37 @@ export function ToolCallDisplay({ toolName, input, output, state }) {
     URL.revokeObjectURL(url);
   };
 
+  // Pagination display info
+  const paginationDisplay = paginationMeta
+    ? getPaginationDisplayInfo(paginationMeta, totalLoadedItems, loadedPageCount)
+    : null;
+
   return (
     <div className="border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
-      {/* Header: method badge + path */}
+      {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         {method && (
           <Badge
             variant="outline"
-            className={`text-[10px] px-1.5 py-0 font-bold ${METHOD_COLORS[method] || "border-white/30 text-white/60"}`}
+            className={`text-[10px] px-1.5 py-0 font-bold ${
+              method === "MCP"
+                ? "border-purple-500/30 text-purple-400 bg-purple-500/10"
+                : METHOD_COLORS[method] || "border-white/30 text-white/60"
+            }`}
           >
             {method}
           </Badge>
         )}
-        <span className="text-white/60 flex-1">{path || toolName}</span>
+        <span className="text-white/80 font-medium">{displayName}</span>
+        {path && path !== displayName && (
+          <span className="text-white/30 text-[10px] truncate flex-1">{path}</span>
+        )}
         {isLoading && (
           <span className="text-blue-400 animate-pulse">calling...</span>
         )}
       </div>
 
-      {/* Input args - smart rendering */}
+      {/* Input args */}
       {input && Object.keys(input).length > 0 && (
         <div className="mt-2 space-y-1">
           {Object.entries(input).map(([key, value]) => (
@@ -420,35 +671,194 @@ export function ToolCallDisplay({ toolName, input, output, state }) {
         </div>
       )}
 
-      {/* Output - smart rendering */}
+      {/* Output */}
       {hasOutput && (
         <div className="group/output mt-3 border-t border-white/5 pt-2">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-white/30">result</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowRaw(!showRaw)}
-                className="text-white/20 hover:text-white/50 text-[10px] transition-colors"
-              >
-                {showRaw ? "formatted" : "raw"}
-              </button>
-              {isJson && (
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              {/* View toggle tabs */}
+              <div className="flex items-center gap-1 bg-white/5 rounded-md p-0.5">
                 <button
-                  onClick={handleDownload}
-                  className="opacity-0 group-hover/output:opacity-100 transition-opacity text-white/20 hover:text-white/50 p-1 -m-1"
-                  title="Download JSON"
+                  onClick={() => setShowRaw(false)}
+                  className={`px-2 py-1 text-[10px] rounded transition-all ${
+                    !showRaw ? "bg-white/10 text-white font-medium" : "text-white/40 hover:text-white/60"
+                  }`}
                 >
-                  <Download className="h-3 w-3" />
+                  Table
                 </button>
+                <button
+                  onClick={() => setShowRaw(true)}
+                  className={`px-2 py-1 text-[10px] rounded transition-all ${
+                    showRaw ? "bg-white/10 text-white font-medium" : "text-white/40 hover:text-white/60"
+                  }`}
+                >
+                  JSON
+                </button>
+              </div>
+
+              {/* Row count & pagination info */}
+              <div className="flex items-center gap-2 text-[10px] text-white/30">
+                {paginationDisplay ? (
+                  <>
+                    <span className="text-white/50">
+                      {viewMode === "all"
+                        ? `${totalLoadedItems} loaded`
+                        : `Page ${currentPage}`}
+                      {paginationDisplay.totalCount && (
+                        <span className="text-white/30"> of {paginationDisplay.totalCount}</span>
+                      )}
+                    </span>
+                    {paginationDisplay.hasMore && (
+                      <span className="text-blue-400/60">• more available</span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {rowCount !== null && <span>{rowCount} rows</span>}
+                  </>
+                )}
+                {duration && <span>{duration}ms</span>}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-2">
+              {isJson && (
+                <>
+                  <button
+                    onClick={handleCopyJson}
+                    className="flex items-center gap-1 text-white/30 hover:text-white/60 text-[10px] transition-colors"
+                    title="Copy JSON"
+                  >
+                    {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                  <button
+                    onClick={handleDownload}
+                    className="flex items-center gap-1 text-white/30 hover:text-white/60 text-[10px] transition-colors"
+                    title="Download JSON"
+                  >
+                    <Download className="h-3 w-3" />
+                  </button>
+                </>
               )}
             </div>
           </div>
+
+          {/* Content */}
           {showRaw ? (
-            <pre className="text-white/70 whitespace-pre-wrap break-words text-[11px] bg-black/20 rounded p-2 max-h-64 overflow-auto">
+            <pre className="text-white/70 whitespace-pre-wrap break-words text-[11px] bg-black/30 rounded-lg p-3 max-h-72 overflow-auto border border-white/5">
               {rawJson}
             </pre>
           ) : (
-            <SmartResult data={output} />
+            <SmartResult data={{ _actionchat: { response_body: currentPageData } }} />
+          )}
+
+          {/* Pagination Controls */}
+          {paginationMeta && (
+            <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+              {/* Page navigation */}
+              <div className="flex items-center gap-2">
+                {/* Previous page */}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1 || viewMode === "all"}
+                  className={`p-1.5 rounded transition-all ${
+                    currentPage <= 1 || viewMode === "all"
+                      ? "text-white/20 cursor-not-allowed"
+                      : "text-white/50 hover:text-white hover:bg-white/10"
+                  }`}
+                  title="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+
+                {/* Page indicators */}
+                <div className="flex items-center gap-1">
+                  {Object.keys(pages)
+                    .map(Number)
+                    .sort((a, b) => a - b)
+                    .map((pageNum) => (
+                      <button
+                        key={pageNum}
+                        onClick={() => {
+                          setCurrentPage(pageNum);
+                          setViewMode("current");
+                        }}
+                        className={`w-6 h-6 rounded text-[10px] transition-all ${
+                          viewMode === "current" && currentPage === pageNum
+                            ? "bg-blue-500/30 text-blue-400 font-bold"
+                            : "text-white/40 hover:text-white hover:bg-white/10"
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+                  {paginationMeta.hasMore && (
+                    <span className="text-white/20 px-1">...</span>
+                  )}
+                </div>
+
+                {/* Next page */}
+                <button
+                  onClick={() => {
+                    if (currentPage < loadedPageCount) {
+                      setCurrentPage((p) => p + 1);
+                      setViewMode("current");
+                    } else if (paginationMeta.hasMore) {
+                      fetchNextPage();
+                    }
+                  }}
+                  disabled={!paginationMeta.hasMore && currentPage >= loadedPageCount}
+                  className={`p-1.5 rounded transition-all ${
+                    !paginationMeta.hasMore && currentPage >= loadedPageCount
+                      ? "text-white/20 cursor-not-allowed"
+                      : "text-white/50 hover:text-white hover:bg-white/10"
+                  }`}
+                  title={currentPage >= loadedPageCount ? "Load next page" : "Next page"}
+                >
+                  {isLoadingPage ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+
+              {/* View all / Load all buttons */}
+              <div className="flex items-center gap-2">
+                {loadedPageCount > 1 && (
+                  <button
+                    onClick={() => setViewMode(viewMode === "all" ? "current" : "all")}
+                    className={`px-2 py-1 text-[10px] rounded transition-all ${
+                      viewMode === "all"
+                        ? "bg-blue-500/20 text-blue-400"
+                        : "text-white/40 hover:text-white hover:bg-white/10"
+                    }`}
+                  >
+                    {viewMode === "all" ? "View pages" : `View all (${totalLoadedItems})`}
+                  </button>
+                )}
+
+                {paginationMeta.hasMore && (
+                  <button
+                    onClick={fetchAllPages}
+                    disabled={isLoadingPage}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] rounded text-white/40 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+                    title="Load all pages"
+                  >
+                    {isLoadingPage ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ChevronsRight className="h-3 w-3" />
+                    )}
+                    <span>Load all</span>
+                    {paginationMeta.totalCount && (
+                      <span className="text-white/30">({paginationMeta.totalCount})</span>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -459,6 +869,156 @@ export function ToolCallDisplay({ toolName, input, output, state }) {
           Error executing tool
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Extract the data array from a response (handles Stripe's {data: [...]}, etc.)
+ */
+function extractDataArrayFromResponse(response) {
+  if (Array.isArray(response)) return response;
+
+  const arrayFields = ["data", "results", "items", "records", "entries", "list", "rows", "objects"];
+  for (const field of arrayFields) {
+    if (Array.isArray(response?.[field])) {
+      return response[field];
+    }
+  }
+
+  // If it's an object but not an array wrapper, return as single-item array
+  if (response && typeof response === "object") {
+    return [response];
+  }
+
+  return response;
+}
+
+/**
+ * Display multiple tool calls of the same type grouped into a single table.
+ * Used when AI makes multiple parallel calls (e.g., fetch 10 customers separately).
+ */
+export function GroupedToolCallDisplay({ toolName, parts }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Extract metadata from first part
+  const firstPart = parts[0];
+  const actionMeta = firstPart?.output?._actionchat;
+  const method = actionMeta?.method || "";
+  const displayName = actionMeta?.tool_name || toolName;
+
+  // Combine all results into a single array
+  const combinedResults = parts.flatMap((part) => {
+    const output = part.output;
+    const data = output?._actionchat?.response_body ?? output?.result ?? output;
+    // Parse if stringified
+    let parsed = data;
+    if (typeof parsed === "string" && (parsed.startsWith("[") || parsed.startsWith("{"))) {
+      try { parsed = JSON.parse(parsed); } catch { }
+    }
+    // Wrap non-arrays
+    return Array.isArray(parsed) ? parsed : [parsed];
+  }).filter(Boolean);
+
+  const totalDuration = parts.reduce((sum, p) => sum + (p.output?._actionchat?.duration_ms || 0), 0);
+  const rawJson = JSON.stringify(combinedResults, null, 2);
+
+  const handleCopyJson = async () => {
+    await navigator.clipboard.writeText(rawJson);
+    setCopied(true);
+    toast.success("Copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([rawJson], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(displayName || "results").replace(/[^a-z0-9]/gi, "-").toLowerCase()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-1">
+        {method && (
+          <Badge
+            variant="outline"
+            className={`text-[10px] px-1.5 py-0 font-bold ${
+              method === "MCP"
+                ? "border-purple-500/30 text-purple-400 bg-purple-500/10"
+                : METHOD_COLORS[method] || "border-white/30 text-white/60"
+            }`}
+          >
+            {method}
+          </Badge>
+        )}
+        <span className="text-white/80 font-medium">{displayName}</span>
+        <span className="text-white/30 text-[10px]">({parts.length} calls combined)</span>
+      </div>
+
+      {/* Results */}
+      <div className="mt-3 border-t border-white/5 pt-2">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            {/* View toggle */}
+            <div className="flex items-center gap-1 bg-white/5 rounded-md p-0.5">
+              <button
+                onClick={() => setShowRaw(false)}
+                className={`px-2 py-1 text-[10px] rounded transition-all ${
+                  !showRaw ? "bg-white/10 text-white font-medium" : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                Table
+              </button>
+              <button
+                onClick={() => setShowRaw(true)}
+                className={`px-2 py-1 text-[10px] rounded transition-all ${
+                  showRaw ? "bg-white/10 text-white font-medium" : "text-white/40 hover:text-white/60"
+                }`}
+              >
+                JSON
+              </button>
+            </div>
+            {/* Stats */}
+            <div className="flex items-center gap-2 text-[10px] text-white/30">
+              <span>{combinedResults.length} rows</span>
+              {totalDuration > 0 && <span>{totalDuration}ms total</span>}
+            </div>
+          </div>
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyJson}
+              className="text-white/30 hover:text-white/60 text-[10px] transition-colors"
+              title="Copy JSON"
+            >
+              {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+            </button>
+            <button
+              onClick={handleDownload}
+              className="text-white/30 hover:text-white/60 text-[10px] transition-colors"
+              title="Download JSON"
+            >
+              <Download className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+
+        {showRaw ? (
+          <pre className="text-white/70 whitespace-pre-wrap break-words text-[11px] bg-black/30 rounded-lg p-3 max-h-72 overflow-auto border border-white/5">
+            {rawJson}
+          </pre>
+        ) : (
+          <SmartResult data={{ _actionchat: { response_body: combinedResults } }} />
+        )}
+      </div>
     </div>
   );
 }
