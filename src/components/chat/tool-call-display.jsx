@@ -14,7 +14,6 @@ import {
   Calendar,
   Hash,
   Loader2,
-  ChevronsRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { detectPagination, buildNextPageParams, getPaginationDisplayInfo } from "@/lib/pagination";
@@ -261,24 +260,24 @@ function DataTable({ data, maxRows = 8 }) {
     typeof item === "object" && item ? Object.keys(item) : []
   ))];
 
-  // Prioritize common fields, limit columns
-  const priorityKeys = ["id", "name", "email", "status", "amount", "currency", "type", "recurring", "interval", "product", "created", "created_at"];
+  // Prioritize common fields, show more columns
+  const priorityKeys = ["id", "name", "email", "status", "amount", "currency", "type", "recurring", "interval", "product", "description", "created", "created_at", "updated_at"];
   // Skip currency as a column since we show it with amount
-  const skipKeys = ["currency"];
+  const skipKeys = ["currency", "object", "livemode", "metadata"];
   const sortedKeys = [
     ...priorityKeys.filter(k => allKeys.includes(k) && !skipKeys.includes(k)),
     ...allKeys.filter(k => !priorityKeys.includes(k) && !skipKeys.includes(k))
-  ].slice(0, 6);
+  ].slice(0, 10); // Show up to 10 columns
 
   const displayData = expanded ? data : data.slice(0, maxRows);
 
   return (
-    <div className="overflow-x-auto -mx-1">
-      <table className="w-full text-xs">
+    <div className="overflow-x-auto -mx-3 px-3">
+      <table className="w-full text-xs table-fixed">
         <thead>
           <tr className="border-b border-white/10">
             {sortedKeys.map(key => (
-              <th key={key} className="text-left text-white/40 font-medium py-2 px-2 first:pl-1 whitespace-nowrap">
+              <th key={key} className="text-left text-white/40 font-medium py-2 px-3 whitespace-nowrap">
                 {key.replace(/_/g, " ")}
               </th>
             ))}
@@ -291,7 +290,7 @@ function DataTable({ data, maxRows = 8 }) {
                 const value = item?.[key];
                 const formatted = formatNestedValue(key, value, item);
                 return (
-                  <td key={key} className="py-2 px-2 first:pl-1">
+                  <td key={key} className="py-2 px-3">
                     {formatted !== null ? (
                       <span className={key === "amount" ? "text-green-400 font-medium" : "text-white/70"}>
                         {formatted}
@@ -457,18 +456,7 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
   // Initialize pagination on first render with output
   useEffect(() => {
     if (hasOutput && Object.keys(pages).length === 0) {
-      // Debug: log the actual data structure
-      console.log('[Pagination] Checking data:', {
-        actualData,
-        hasMore: actualData?.has_more,
-        dataLength: actualData?.data?.length,
-        isArray: Array.isArray(actualData),
-        keys: actualData && typeof actualData === 'object' ? Object.keys(actualData) : null,
-      });
-
       const pagination = detectPagination(actualData, input);
-      console.log('[Pagination] Detection result:', pagination);
-
       if (pagination) {
         setPaginationMeta(pagination);
         // Extract just the data array for the page cache
@@ -561,55 +549,6 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
     }
   }, [paginationMeta, isLoadingPage, toolId, sourceId, actionMeta, input, loadedPageCount]);
 
-  // Fetch all remaining pages
-  const fetchAllPages = useCallback(async () => {
-    if (!paginationMeta?.hasMore || isLoadingPage) return;
-
-    setIsLoadingPage(true);
-    let currentMeta = paginationMeta;
-    let pageNum = loadedPageCount;
-    let currentInput = input;
-    const maxPages = 20; // Safety limit
-
-    try {
-      while (currentMeta?.hasMore && pageNum < maxPages) {
-        const nextParams = buildNextPageParams(currentMeta, currentInput);
-
-        const response = await fetch("/api/tools/paginate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            toolId: toolId || actionMeta?.tool_id,
-            sourceId: sourceId || actionMeta?.source_id,
-            input: nextParams,
-          }),
-        });
-
-        if (!response.ok) break;
-
-        const result = await response.json();
-        const newData = result.output?._actionchat?.response_body ?? result.output;
-        const newDataArray = extractDataArrayFromResponse(newData);
-
-        pageNum++;
-        setPages((prev) => ({ ...prev, [pageNum]: newDataArray }));
-
-        currentMeta = detectPagination(newData, nextParams);
-        currentInput = nextParams;
-
-        if (!currentMeta?.hasMore) break;
-      }
-
-      setPaginationMeta((prev) => ({ ...prev, hasMore: currentMeta?.hasMore || false }));
-      setViewMode("all");
-    } catch (error) {
-      console.error("[Pagination] Fetch all error:", error);
-      toast.error("Failed to load all pages");
-    } finally {
-      setIsLoadingPage(false);
-    }
-  }, [paginationMeta, isLoadingPage, loadedPageCount, toolId, sourceId, actionMeta, input]);
-
   const handleCopyJson = async () => {
     await navigator.clipboard.writeText(rawJson);
     setCopied(true);
@@ -639,7 +578,7 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
     : null;
 
   return (
-    <div className="border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
+    <div className="w-full border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         {method && (
@@ -936,7 +875,7 @@ export function GroupedToolCallDisplay({ toolName, parts }) {
   };
 
   return (
-    <div className="border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
+    <div className="w-full border border-white/10 rounded bg-white/[0.02] p-3 my-2 font-mono text-xs">
       {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         {method && (

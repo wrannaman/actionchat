@@ -37,19 +37,51 @@ export async function GET(request, { params }) {
       .eq('chat_id', chatId)
       .order('created_at', { ascending: true });
 
+    console.log('[LOAD CHAT] ════════════════════════════════════════');
+    console.log('[LOAD CHAT] chatId:', chatId);
+    console.log('[LOAD CHAT] messages found:', messages?.length || 0);
+    console.log('[LOAD CHAT] msgError:', msgError);
+    console.log('[LOAD CHAT] RAW messages from DB:', JSON.stringify(messages, null, 2));
+    console.log('[LOAD CHAT] ════════════════════════════════════════');
+
     if (msgError) {
       console.error('[CHAT] Failed to load messages:', msgError);
       return Response.json({ error: 'Failed to load messages' }, { status: 500 });
     }
 
-    // Convert to AI SDK UIMessage format (with parts array)
-    const formattedMessages = (messages || []).map(msg => ({
-      id: msg.id,
-      role: msg.role,
-      // UIMessage format uses parts array, not content string
-      parts: [{ type: 'text', text: msg.content || '' }],
-      createdAt: msg.created_at,
-    }));
+    // Convert to AI SDK UIMessage format
+    // IMPORTANT: For historical messages, we use TEXT-ONLY parts for useChat
+    // (to avoid AI SDK errors about missing tool results), but we ALSO include
+    // the stored tool_calls data so ChatMessage can render rich displays.
+    const formattedMessages = (messages || []).map(msg => {
+      // Build content string for the AI
+      let content = msg.content || '';
+
+      // For assistant messages with tool calls but no text content,
+      // generate a brief summary for the AI context
+      if (msg.role === 'assistant' && msg.tool_calls?.length && !content) {
+        const toolSummary = msg.tool_calls.map(tc => {
+          const resultInfo = tc.result?.body
+            ? (Array.isArray(tc.result.body) ? `${tc.result.body.length} items` : 'done')
+            : 'executed';
+          return `${tc.tool_name} (${resultInfo})`;
+        }).join(', ');
+        content = `Called: ${toolSummary}`;
+      }
+
+      return {
+        id: msg.id,
+        role: msg.role,
+        content,
+        // Text-only parts for useChat (avoids AI SDK errors)
+        parts: [{ type: 'text', text: content }],
+        // Include stored tool_calls for ChatMessage to render rich displays
+        toolCalls: msg.tool_calls || null,
+        createdAt: msg.created_at,
+      };
+    });
+
+    console.log('[ROUTE] Formatted messages to return:', JSON.stringify(formattedMessages, null, 2));
 
     return Response.json({
       chat,

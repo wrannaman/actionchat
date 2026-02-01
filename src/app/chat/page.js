@@ -646,6 +646,18 @@ function ChatInterface({
   const [input, setInput] = useState("");
   const [executing, setExecuting] = useState(false);
 
+  // Store toolCalls data separately from useChat (useChat may strip custom properties)
+  // Map of message ID -> toolCalls array
+  const [storedToolCalls, setStoredToolCalls] = useState(() => {
+    const map = {};
+    (initialMessages || []).forEach(msg => {
+      if (msg.toolCalls) {
+        map[msg.id] = msg.toolCalls;
+      }
+    });
+    return map;
+  });
+
   // Slash command support
   const {
     showAutocomplete,
@@ -668,11 +680,28 @@ function ChatInterface({
   const pendingChatIdRef = useRef(null);
 
   // Generate a stable chat key - use currentChatId if resuming, or a new ID for fresh chats
-  const chatKeyRef = useRef(currentChatId || `chat-${Date.now()}`);
+  // Important: This needs to update when currentChatId changes (e.g., loading a saved chat)
+  const [chatKey, setChatKey] = useState(currentChatId || `new-${Date.now()}`);
+
+  // Sync chatKey when currentChatId changes (e.g., navigating to a saved chat)
+  useEffect(() => {
+    console.log('[CHAT KEY] currentChatId:', currentChatId, 'chatKey:', chatKey, 'initialMessages:', initialMessages?.length);
+
+    if (currentChatId && currentChatId !== chatKey) {
+      console.log('[CHAT KEY] Updating chatKey to:', currentChatId);
+      setChatKey(currentChatId);
+    } else if (!currentChatId && !chatKey.startsWith('new-')) {
+      // Starting a new chat
+      console.log('[CHAT KEY] Starting new chat');
+      setChatKey(`new-${Date.now()}`);
+    }
+  }, [currentChatId, chatKey, initialMessages]);
+
+  console.log('[USE CHAT] Initializing with key:', chatKey, 'initialMessages:', initialMessages?.length);
 
   const { messages, status, sendMessage, setMessages } = useChat({
     api: "/api/chat",
-    id: chatKeyRef.current,
+    id: chatKey,
     initialMessages: initialMessages || [],
     onResponse: async (response) => {
       // Capture chatId from response header
@@ -684,9 +713,11 @@ function ChatInterface({
     onFinish: () => {
       // Apply pending chat ID after stream is complete
       if (pendingChatIdRef.current) {
-        chatIdRef.current = pendingChatIdRef.current;
-        setCurrentChatId(pendingChatIdRef.current);
-        onChatCreated?.(pendingChatIdRef.current);
+        const newId = pendingChatIdRef.current;
+        chatIdRef.current = newId;
+        setCurrentChatId(newId);
+        setChatKey(newId); // Update the chat key to match the new chat
+        onChatCreated?.(newId);
         pendingChatIdRef.current = null;
       }
     },
@@ -803,9 +834,22 @@ function ChatInterface({
 
   // Load messages when initialMessages change (switching chats)
   useEffect(() => {
+    console.log('[SET MESSAGES] ════════════════════════════════════════');
+    console.log('[SET MESSAGES] initialMessages:', JSON.stringify(initialMessages, null, 2));
     if (initialMessages && initialMessages.length > 0) {
       setMessages(initialMessages);
+
+      // Update stored tool calls map
+      const map = {};
+      initialMessages.forEach(msg => {
+        if (msg.toolCalls) {
+          map[msg.id] = msg.toolCalls;
+        }
+      });
+      setStoredToolCalls(map);
+      console.log('[SET MESSAGES] storedToolCalls map:', JSON.stringify(map, null, 2));
     }
+    console.log('[SET MESSAGES] ════════════════════════════════════════');
   }, [initialMessages, setMessages]);
 
   // Auto-scroll
@@ -817,7 +861,7 @@ function ChatInterface({
     <>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-5xl mx-auto space-y-6">
           {messages.length === 0 ? (
             <div className="text-center py-12">
               <h2 className="text-2xl font-bold mb-2">What would you like to do?</h2>
@@ -844,22 +888,41 @@ function ChatInterface({
                 }
                 return true;
               })
-              .map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                >
+              .map((message) => {
+                // DEBUG: Log what we're passing to ChatMessage
+                const mergedToolCalls = message.toolCalls || storedToolCalls[message.id] || null;
+                if (message.role === 'assistant') {
+                  console.log('[RENDER] ════════════════════════════════════════');
+                  console.log('[RENDER] message.id:', message.id);
+                  console.log('[RENDER] message.toolCalls:', JSON.stringify(message.toolCalls, null, 2));
+                  console.log('[RENDER] storedToolCalls[id]:', JSON.stringify(storedToolCalls[message.id], null, 2));
+                  console.log('[RENDER] mergedToolCalls:', JSON.stringify(mergedToolCalls, null, 2));
+                  console.log('[RENDER] ════════════════════════════════════════');
+                }
+
+                return (
                   <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 overflow-x-auto ${
-                      message.role === "user"
-                        ? "bg-blue-500 text-white"
-                        : "bg-white/5 border border-white/10 text-white/90"
-                    }`}
+                    key={message.id}
+                    className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                   >
-                    <ChatMessage message={message} />
+                    <div
+                      className={`rounded-2xl px-4 py-3 overflow-x-auto ${
+                        message.role === "user"
+                          ? "max-w-[75%] bg-blue-500 text-white"
+                          : "max-w-[90%] bg-white/5 border border-white/10 text-white/90"
+                      }`}
+                    >
+                      <ChatMessage
+                        message={{
+                          ...message,
+                          // Merge stored toolCalls (useChat may have stripped them)
+                          toolCalls: mergedToolCalls,
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
           )}
 
           {isLoading && (
@@ -876,7 +939,7 @@ function ChatInterface({
 
       {/* Bottom bar: API chips + input */}
       <div className="border-t border-white/5 px-4 py-4 shrink-0 bg-[#0a0a0f]">
-        <div className="max-w-3xl mx-auto space-y-3">
+        <div className="max-w-5xl mx-auto space-y-3">
           {/* API chips */}
           <div className="flex items-center gap-2 flex-wrap">
             {sources.map((source) => (
@@ -1025,6 +1088,9 @@ function ChatContent({ initialChatId }) {
       const res = await cachedFetch(`/api/workspace/chats/${chatId}`, {}, { ttlMs: 5000 });
       if (res.ok) {
         const data = await res.json();
+        console.log('[LOAD CHAT CLIENT] ════════════════════════════════════════');
+        console.log('[LOAD CHAT CLIENT] Full response:', JSON.stringify(data, null, 2));
+        console.log('[LOAD CHAT CLIENT] ════════════════════════════════════════');
         setCurrentChatId(chatId);
         setCurrentMessages(data.messages || []);
       } else {
@@ -1290,6 +1356,7 @@ function ChatContent({ initialChatId }) {
             <>
               <div className="flex-1 flex flex-col overflow-hidden">
                 <ChatInterface
+                  key={currentChatId || 'new'}
                   agentId={workspace.agent_id}
                   sources={sources}
                   onRemoveSource={handleRemoveSource}

@@ -68,11 +68,22 @@ export async function saveConversation(supabase, {
     if (lastUserMsg) {
       const userText = extractText(lastUserMsg);
       if (userText) {
-        await supabase.from('messages').insert({
-          chat_id: chatId,
-          role: 'user',
-          content: userText,
-        });
+        console.log('[PERSIST] Saving user message:', userText.slice(0, 100));
+        const { data: userMsgData, error: userMsgError } = await supabase
+          .from('messages')
+          .insert({
+            chat_id: chatId,
+            role: 'user',
+            content: userText,
+          })
+          .select('id')
+          .single();
+
+        if (userMsgError) {
+          console.error('[PERSIST] ❌ Failed to save user message:', userMsgError);
+        } else {
+          console.log('[PERSIST] ✅ Saved user message:', userMsgData?.id);
+        }
       }
     }
 
@@ -91,6 +102,11 @@ export async function saveConversation(supabase, {
       console.log('[PERSIST] Extracted text from steps:', responseText?.slice(0, 200));
     }
 
+    console.log('[PERSIST] Saving assistant message...');
+    console.log('[PERSIST] responseText length:', responseText?.length);
+    console.log('[PERSIST] responseText preview:', responseText?.slice(0, 200));
+    console.log('[PERSIST] toolCalls count:', toolCalls.length);
+
     const { data: assistantMsg, error } = await supabase
       .from('messages')
       .insert({
@@ -108,9 +124,11 @@ export async function saveConversation(supabase, {
       .single();
 
     if (error) {
-      console.error('[CHAT] Failed to save assistant message:', error);
+      console.error('[PERSIST] ❌ Failed to save assistant message:', error);
       return;
     }
+
+    console.log('[PERSIST] ✅ Saved assistant message:', assistantMsg?.id);
 
     // 3. Log tool executions to action_log
     await logToolExecutions(supabase, {
@@ -144,19 +162,93 @@ function extractText(message) {
 }
 
 /**
- * Extract tool calls from AI SDK steps.
+ * Extract tool calls with results from AI SDK steps.
+ *
+ * AI SDK step format has changed - now uses step.content array with:
+ * - { type: "tool-call", toolCallId, toolName, input }
+ * - { type: "tool-result", toolCallId, toolName, output }
  */
 function extractToolCalls(steps) {
   const calls = [];
+
   for (const step of (steps || [])) {
+    // Build a map of toolCallId -> result from content array
+    const resultMap = new Map();
+    const toolCallsInStep = [];
+
+    // Parse from step.content (new AI SDK format)
+    for (const item of (step.content || [])) {
+      if (item.type === 'tool-result') {
+        resultMap.set(item.toolCallId, item.output);
+      }
+      if (item.type === 'tool-call') {
+        toolCallsInStep.push({
+          toolCallId: item.toolCallId,
+          toolName: item.toolName,
+          args: item.input || item.args,
+        });
+      }
+    }
+
+    // Also check legacy format (step.toolCalls / step.toolResults)
+    for (const tr of (step.toolResults || [])) {
+      resultMap.set(tr.toolCallId, tr.result || tr.output);
+    }
     for (const tc of (step.toolCalls || [])) {
+      // Only add if not already added from content
+      if (!toolCallsInStep.some(t => t.toolCallId === tc.toolCallId)) {
+        toolCallsInStep.push({
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          args: tc.args || tc.input,
+        });
+      }
+    }
+
+    // Create call records with matched results
+    for (const tc of toolCallsInStep) {
+      const result = resultMap.get(tc.toolCallId);
       calls.push({
+        id: tc.toolCallId,
         tool_name: tc.toolName,
         arguments: tc.args,
+        // Include the result for display on reload
+        result: result ? sanitizeResult(result) : null,
       });
     }
   }
+
+  console.log('[PERSIST] extractToolCalls found:', calls.length, 'calls');
+  console.log('[PERSIST] extractToolCalls data:', JSON.stringify(calls, null, 2).slice(0, 2000));
+
   return calls;
+}
+
+/**
+ * Sanitize tool result for storage (remove internal metadata, limit size)
+ */
+function sanitizeResult(result) {
+  if (!result) return null;
+
+  // If it has _actionchat metadata, extract the key fields
+  if (result._actionchat) {
+    return {
+      status: result._actionchat.response_status,
+      body: result._actionchat.response_body,
+      method: result._actionchat.method,
+      url: result._actionchat.url,
+      tool_name: result._actionchat.tool_name,
+      duration_ms: result._actionchat.duration_ms,
+    };
+  }
+
+  // For other results, try to limit size
+  const str = JSON.stringify(result);
+  if (str.length > 50000) {
+    return { truncated: true, preview: str.slice(0, 5000) };
+  }
+
+  return result;
 }
 
 /**

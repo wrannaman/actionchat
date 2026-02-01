@@ -28,7 +28,14 @@ export function ChatMessage({ message, onApprove, onReject }) {
   }
 
   if (role === "assistant") {
-    return <AssistantMessage parts={parts} onApprove={onApprove} onReject={onReject} />;
+    return (
+      <AssistantMessage
+        parts={parts}
+        storedToolCalls={message.toolCalls}
+        onApprove={onApprove}
+        onReject={onReject}
+      />
+    );
   }
 
   // System messages
@@ -52,8 +59,27 @@ function UserMessage({ parts }) {
   return <p className="whitespace-pre-wrap">{text}</p>;
 }
 
-function AssistantMessage({ parts, onApprove, onReject }) {
+function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {
   if (!parts || parts.length === 0) return null;
+
+  // Check if we have live tool parts (from streaming) or need to use stored data
+  const hasLiveToolParts = parts.some(p =>
+    (p.type?.startsWith('tool-') || p.type === 'dynamic-tool')
+  );
+
+  // ALWAYS log for debugging
+  console.log('[AssistantMessage] ════════════════════════════════════════');
+  console.log('[AssistantMessage] hasLiveToolParts:', hasLiveToolParts);
+  console.log('[AssistantMessage] storedToolCalls:', JSON.stringify(storedToolCalls, null, 2));
+  console.log('[AssistantMessage] parts:', JSON.stringify(parts, null, 2));
+  console.log('[AssistantMessage] Will use stored?', !hasLiveToolParts && storedToolCalls?.length > 0);
+  console.log('[AssistantMessage] ════════════════════════════════════════');
+
+  // If we have stored tool calls but no live tool parts, render from stored data
+  if (!hasLiveToolParts && storedToolCalls?.length) {
+    console.log('[AssistantMessage] >>> Rendering StoredToolCallsMessage');
+    return <StoredToolCallsMessage parts={parts} storedToolCalls={storedToolCalls} />;
+  }
 
   // Dedupe tool calls by toolCallId to prevent duplicates from multi-step accumulation
   const seenToolCallIds = new Set();
@@ -124,7 +150,7 @@ function AssistantMessage({ parts, onApprove, onReject }) {
   );
 
   return (
-    <div className="space-y-2">
+    <div className="w-full space-y-2">
       {groupedParts.map((part, i) => {
         // Render grouped tool calls
         if (part.type === "tool-group") {
@@ -148,6 +174,70 @@ function AssistantMessage({ parts, onApprove, onReject }) {
       })}
       {/* Show a subtle message if there's only tool output and no explanation */}
       {!hasText && hasToolResults && (
+        <p className="text-white/30 text-xs italic mt-2">
+          ↑ API response above
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Render messages with stored tool calls (from database after page refresh)
+function StoredToolCallsMessage({ parts, storedToolCalls }) {
+  console.log('[StoredToolCallsMessage] ════════════════════════════════════════');
+  console.log('[StoredToolCallsMessage] storedToolCalls:', JSON.stringify(storedToolCalls, null, 2));
+
+  // Get any text content from parts
+  const textContent = parts
+    .filter(p => p.type === 'text')
+    .map(p => p.text)
+    .join('')
+    .trim();
+
+  // Check if text is just a summary we generated (starts with "Called:")
+  const isAutoSummary = textContent.startsWith('Called:');
+
+  // Filter to only tool calls with results for display
+  // We check that result exists and has a body (even if body is empty/null, we want to show it)
+  const displayableToolCalls = storedToolCalls.filter(tc => tc.result && 'body' in tc.result);
+
+  console.log('[StoredToolCallsMessage] displayableToolCalls:', JSON.stringify(displayableToolCalls, null, 2));
+  console.log('[StoredToolCallsMessage] ════════════════════════════════════════');
+
+  return (
+    <div className="w-full space-y-2">
+      {/* Render stored tool calls as rich displays */}
+      {displayableToolCalls.map((tc, i) => {
+        // Reconstruct the _actionchat format from stored data
+        const output = tc.result ? {
+          _actionchat: {
+            response_body: tc.result.body,
+            response_status: tc.result.status,
+            method: tc.result.method || 'GET',
+            url: tc.result.url,
+            tool_name: tc.result.tool_name || tc.tool_name,
+            duration_ms: tc.result.duration_ms,
+          }
+        } : null;
+
+        return (
+          <ToolCallDisplay
+            key={tc.id || `stored-${i}`}
+            toolName={tc.tool_name}
+            input={tc.arguments}
+            output={output}
+            state={output ? "output-available" : "completed"}
+          />
+        );
+      })}
+      {/* Show text content if it's not just our auto-generated summary */}
+      {textContent && !isAutoSummary && (
+        <div className="prose prose-invert prose-sm max-w-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+        </div>
+      )}
+      {/* Show hint for historical tool results */}
+      {displayableToolCalls.length > 0 && (
         <p className="text-white/30 text-xs italic mt-2">
           ↑ API response above
         </p>
