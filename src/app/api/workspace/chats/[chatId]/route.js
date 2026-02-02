@@ -94,6 +94,52 @@ export async function GET(request, { params }) {
 }
 
 /**
+ * PATCH /api/workspace/chats/[chatId] — Rename a chat
+ */
+export async function PATCH(request, { params }) {
+  try {
+    const { chatId } = await params;
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const cookieStore = await cookies();
+    const cookieOrgId = cookieStore.get('org_id')?.value;
+    const orgId = await getUserOrgId(supabase, cookieOrgId);
+
+    const body = await request.json();
+    const { title } = body;
+
+    if (!title || typeof title !== 'string') {
+      return Response.json({ error: 'Title is required' }, { status: 400 });
+    }
+
+    // Update the chat title
+    const { data: chat, error } = await supabase
+      .from('chats')
+      .update({ title: title.trim() })
+      .eq('id', chatId)
+      .eq('org_id', orgId)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[CHAT] Failed to rename chat:', error);
+      return Response.json({ error: 'Failed to rename chat' }, { status: 500 });
+    }
+
+    return Response.json({ chat });
+  } catch (error) {
+    console.error('[CHAT] Error:', error);
+    return Response.json({ error: 'Failed to rename chat' }, { status: 500 });
+  }
+}
+
+/**
  * DELETE /api/workspace/chats/[chatId] — Delete a chat
  */
 export async function DELETE(request, { params }) {

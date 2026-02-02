@@ -86,7 +86,7 @@ export async function POST(request) {
     // ─────────────────────────────────────────────────────────────────────────
     // 6. LOAD TOOLS
     // ─────────────────────────────────────────────────────────────────────────
-    const { tools, toolRows, sourceIds } = await loadAgentTools(
+    const { tools, toolRows, sourceIds, sourcesWithHints } = await loadAgentTools(
       supabase,
       agentId,
       user.id
@@ -110,7 +110,7 @@ export async function POST(request) {
     // ─────────────────────────────────────────────────────────────────────────
     // 8. STREAM RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
-    const systemPrompt = buildSystemPrompt(agent, toolRows);
+    const systemPrompt = buildSystemPrompt(agent, toolRows, sourcesWithHints);
 
     console.log('[CHAT]', agent.model_provider, agent.model_name, '|', Object.keys(tools).length, 'tools');
 

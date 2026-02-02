@@ -18,6 +18,22 @@
         "credential_label": "Secret Key",
         "credential_placeholder": "sk_test_... or sk_live_..."
       },
+      "mcp_hints": {
+        "list_expansion": {
+          "param": "expand",
+          "default": ["data.email", "data.name", "data.metadata"],
+          "tool_patterns": ["list_*"]
+        },
+        "fetch_enrichment": {
+          "fetch_tool": "fetch_stripe_resources",
+          "id_field": "id",
+          "auto_enrich": false
+        },
+        "llm_guidance": "Stripe list endpoints return minimal data by default. Use the 'expand' parameter to include full details (e.g., expand=['data.email', 'data.name']). For complete objects, use fetch_stripe_resources with the object ID.",
+        "response": {
+          "detect_thin": true
+        }
+      },
       "logo_url": "/integrations/stripe.svg",
       "docs_url": "https://docs.stripe.com/mcp",
       "use_cases": [

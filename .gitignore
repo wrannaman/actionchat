@@ -59,6 +59,6 @@ coverage/
 .env.local 
 .env.dev 
 .env.prod 
-
+.env.test
 
 README.internal.md

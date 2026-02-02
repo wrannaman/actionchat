@@ -123,10 +123,47 @@ function ChatSidebar({
   onSelectChat,
   onNewChat,
   onDeleteChat,
+  onRenameChat,
   isOpen,
   onToggle,
   loading
 }) {
+  const [editingChatId, setEditingChatId] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+  const inputRef = useRef(null);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingChatId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingChatId]);
+
+  const handleDoubleClick = (chat, e) => {
+    e.stopPropagation();
+    setEditingChatId(chat.id);
+    setEditTitle(chat.title || "New chat");
+  };
+
+  const handleRename = async () => {
+    if (editingChatId && editTitle.trim()) {
+      await onRenameChat(editingChatId, editTitle.trim());
+    }
+    setEditingChatId(null);
+    setEditTitle("");
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleRename();
+    } else if (e.key === "Escape") {
+      setEditingChatId(null);
+      setEditTitle("");
+    }
+  };
+
   return (
     <>
       {/* Sidebar */}
@@ -169,10 +206,28 @@ function ChatSidebar({
                       ? "bg-white/10 text-white"
                       : "text-white/60 hover:bg-white/5 hover:text-white/80"
                   }`}
-                  onClick={() => onSelectChat(chat.id)}
+                  onClick={() => editingChatId !== chat.id && onSelectChat(chat.id)}
                 >
                   <MessageSquare className="w-4 h-4 shrink-0" />
-                  <span className="flex-1 truncate text-sm">{chat.title || "New chat"}</span>
+                  {editingChatId === chat.id ? (
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      onBlur={handleRename}
+                      onKeyDown={handleKeyDown}
+                      className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-0.5 text-sm text-white outline-none focus:border-blue-500"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span
+                      className="flex-1 truncate text-sm"
+                      onDoubleClick={(e) => handleDoubleClick(chat, e)}
+                    >
+                      {chat.title || "New chat"}
+                    </span>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -697,8 +752,6 @@ function ChatInterface({
     }
   }, [currentChatId, chatKey, initialMessages]);
 
-  console.log('[USE CHAT] Initializing with key:', chatKey, 'initialMessages:', initialMessages?.length);
-
   const { messages, status, sendMessage, setMessages } = useChat({
     api: "/api/chat",
     id: chatKey,
@@ -1136,6 +1189,27 @@ function ChatContent({ initialChatId }) {
     }
   };
 
+  const handleRenameChat = async (chatId, newTitle) => {
+    try {
+      const res = await fetch(`/api/workspace/chats/${chatId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      if (res.ok) {
+        clearFetchCache((key) => key.includes("/api/workspace/chats"));
+        setChats((prev) =>
+          prev.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
+        );
+        toast.success("Chat renamed");
+      } else {
+        toast.error("Failed to rename chat");
+      }
+    } catch {
+      toast.error("Failed to rename chat");
+    }
+  };
+
   const handleChatCreated = useCallback((chatId) => {
     // Clear chats cache before refreshing list
     clearFetchCache((key) => key.includes("/api/workspace/chats"));
@@ -1342,6 +1416,7 @@ function ChatContent({ initialChatId }) {
           onSelectChat={handleSelectChat}
           onNewChat={handleNewChat}
           onDeleteChat={handleDeleteChat}
+          onRenameChat={handleRenameChat}
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
           loading={loadingChats}

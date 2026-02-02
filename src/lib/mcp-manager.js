@@ -122,9 +122,15 @@ class HTTPMCPConnection extends EventEmitter {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const responseText = await response.text();
+      console.log('[MCP HTTP] ═══════ RAW RESPONSE FROM SERVER ═══════');
+      console.log('[MCP HTTP] Raw response length:', responseText.length);
+      console.log('[MCP HTTP] Raw response (first 15000 chars):', responseText.slice(0, 15000));
+      console.log('[MCP HTTP] ═══════════════════════════════════════');
 
-      console.log('[MCP HTTP] Response JSON:', JSON.stringify(result, null, 2).slice(0, 8000));
+      const result = JSON.parse(responseText);
+
+      console.log('[MCP HTTP] Parsed JSON result:', JSON.stringify(result, null, 2).slice(0, 8000));
 
       if (result.error) {
         console.error('[MCP HTTP] JSON-RPC error:', result.error);
@@ -178,7 +184,16 @@ class HTTPMCPConnection extends EventEmitter {
    */
   async listTools() {
     const result = await this.sendRequest('tools/list', {});
-    return result.tools || [];
+    const tools = result.tools || [];
+    console.log('[MCP HTTP] ═══════ TOOLS LIST ═══════');
+    console.log('[MCP HTTP] Found', tools.length, 'tools');
+    for (const tool of tools) {
+      console.log('[MCP HTTP] Tool:', tool.name);
+      console.log('[MCP HTTP]   Description:', tool.description?.slice(0, 100));
+      console.log('[MCP HTTP]   Input Schema:', JSON.stringify(tool.inputSchema, null, 2));
+    }
+    console.log('[MCP HTTP] ═══════════════════════════');
+    return tools;
   }
 
   /**

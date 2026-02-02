@@ -94,6 +94,15 @@ CREATE TABLE source_templates (
   -- Use cases (for display)
   use_cases TEXT[] DEFAULT '{}',
 
+  -- MCP behavior hints (applied at runtime for ALL users of this template)
+  -- This is where we store our learnings about how each MCP behaves
+  mcp_hints JSONB DEFAULT '{}',
+  -- Example: {
+  --   "list_expansion": { "param": "expand", "default": ["*"] },
+  --   "fetch_tool": "fetch_stripe_resources",
+  --   "llm_guidance": "Use expand param for full data"
+  -- }
+
   -- Metadata
   is_featured BOOLEAN DEFAULT false,
   install_count INTEGER DEFAULT 0,

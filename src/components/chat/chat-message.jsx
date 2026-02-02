@@ -67,17 +67,8 @@ function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {
     (p.type?.startsWith('tool-') || p.type === 'dynamic-tool')
   );
 
-  // ALWAYS log for debugging
-  console.log('[AssistantMessage] ════════════════════════════════════════');
-  console.log('[AssistantMessage] hasLiveToolParts:', hasLiveToolParts);
-  console.log('[AssistantMessage] storedToolCalls:', JSON.stringify(storedToolCalls, null, 2));
-  console.log('[AssistantMessage] parts:', JSON.stringify(parts, null, 2));
-  console.log('[AssistantMessage] Will use stored?', !hasLiveToolParts && storedToolCalls?.length > 0);
-  console.log('[AssistantMessage] ════════════════════════════════════════');
-
   // If we have stored tool calls but no live tool parts, render from stored data
   if (!hasLiveToolParts && storedToolCalls?.length) {
-    console.log('[AssistantMessage] >>> Rendering StoredToolCallsMessage');
     return <StoredToolCallsMessage parts={parts} storedToolCalls={storedToolCalls} />;
   }
 

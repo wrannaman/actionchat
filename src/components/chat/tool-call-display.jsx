@@ -214,14 +214,58 @@ function SmartValue({ keyName, value }) {
     return <span className="text-white/70">{String(value)}</span>;
   }
 
-  // Arrays - show count
+  // Arrays - show count with preview
   if (Array.isArray(value)) {
+    if (value.length === 0) return <span className="text-white/30 italic">[]</span>;
+    // Show first item preview if simple
+    if (value.length <= 3 && value.every(v => typeof v === "string" || typeof v === "number")) {
+      return <span className="text-white/50">[{value.join(", ")}]</span>;
+    }
     return <span className="text-white/50">[{value.length} items]</span>;
   }
 
-  // Objects - show key count
+  // Objects - show compact inline preview
   if (typeof value === "object") {
-    return <span className="text-white/50">{"{...}"}</span>;
+    const entries = Object.entries(value);
+    if (entries.length === 0) return <span className="text-white/30 italic">{"{}"}</span>;
+
+    // Pick the most useful fields to show
+    const priorityFields = ["id", "name", "email", "status", "type", "title", "description", "value", "amount"];
+    const visibleEntries = [];
+
+    // First add priority fields that exist
+    for (const field of priorityFields) {
+      if (value[field] !== undefined && value[field] !== null) {
+        const v = value[field];
+        const display = typeof v === "object" ? "..." : String(v).slice(0, 20);
+        visibleEntries.push({ key: field, value: display });
+        if (visibleEntries.length >= 2) break;
+      }
+    }
+
+    // If no priority fields, show first 2 non-null entries
+    if (visibleEntries.length === 0) {
+      for (const [k, v] of entries) {
+        if (v !== null && v !== undefined) {
+          const display = typeof v === "object" ? "..." : String(v).slice(0, 20);
+          visibleEntries.push({ key: k, value: display });
+          if (visibleEntries.length >= 2) break;
+        }
+      }
+    }
+
+    if (visibleEntries.length === 0) {
+      return <span className="text-white/30 italic">{"{}"}</span>;
+    }
+
+    const preview = visibleEntries.map(e => `${e.key}: ${e.value}`).join(", ");
+    const hasMore = entries.length > visibleEntries.length;
+
+    return (
+      <span className="text-white/50 text-[11px]">
+        {preview}{hasMore && ", ..."}
+      </span>
+    );
   }
 
   return <span className="text-white/50">{String(value)}</span>;

@@ -1,5 +1,6 @@
 import * as mcpManager from './mcp-manager.js';
 import { parseToolResult as parseMcpResult } from './mcp-parser.js';
+import { preProcessArgs, postProcessResult } from './mcp-hints.js';
 
 const MAX_RESPONSE_SIZE = 10 * 1024; // 10KB limit for LLM context
 
@@ -168,16 +169,27 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
   const startTime = Date.now();
   const toolName = tool.mcp_tool_name || tool.path;
 
+  // Get hints from template (managed centrally, applied at runtime)
+  const hints = source.template?.mcp_hints || {};
+
   // Clean empty values before sending to MCP
   const cleanedArgs = cleanArgs(args);
+
+  // Apply hints to args (e.g., add default expand parameter)
+  const processedArgs = preProcessArgs(cleanedArgs, toolName, hints);
 
   console.log('[MCP EXEC] ══════════════════════════════════════════');
   console.log('[MCP EXEC] Tool:', toolName);
   console.log('[MCP EXEC] Source:', source.name, '|', source.source_type);
+  console.log('[MCP EXEC] Template:', source.template?.slug || '(none)');
+  console.log('[MCP EXEC] Has hints:', Object.keys(hints).length > 0);
   console.log('[MCP EXEC] Server URI:', source.mcp_server_uri);
-  console.log('[MCP EXEC] Transport:', source.mcp_transport);
-  console.log('[MCP EXEC] Raw args:', JSON.stringify(args, null, 2));
+  console.log('[MCP EXEC] Raw args from LLM:', JSON.stringify(args, null, 2));
   console.log('[MCP EXEC] Cleaned args:', JSON.stringify(cleanedArgs, null, 2));
+  console.log('[MCP EXEC] Processed args (with hints):', JSON.stringify(processedArgs, null, 2));
+  if (Object.keys(hints).length > 0) {
+    console.log('[MCP EXEC] Applied hints:', JSON.stringify(hints, null, 2));
+  }
   console.log('[MCP EXEC] Has credentials:', !!userCredentials);
   console.log('[MCP EXEC] ══════════════════════════════════════════');
 
@@ -202,7 +214,7 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
 
   try {
     console.log('[MCP EXEC] Calling mcpManager.callTool...');
-    const result = await mcpManager.callTool(source.id, mcpConfig, toolName, cleanedArgs);
+    const result = await mcpManager.callTool(source.id, mcpConfig, toolName, processedArgs);
     const duration_ms = Date.now() - startTime;
 
     console.log('[MCP EXEC] Raw result:', JSON.stringify(result, null, 2).slice(0, 8000));
@@ -210,21 +222,27 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
     // Parse the MCP result
     const parsed = parseMcpResult(result);
 
+    // Apply post-processing hints (detect thin data, unwrap, etc.)
+    const processedData = postProcessResult(parsed.data, toolName, hints);
+
     console.log('[MCP EXEC] Parsed:', { isError: parsed.isError, hasData: !!parsed.data, textLen: parsed.text?.length });
     console.log('[MCP EXEC] Duration:', duration_ms, 'ms');
 
     // Debug: Log structure of returned data to help debug missing fields
-    if (parsed.data) {
-      const data = parsed.data;
+    if (processedData) {
+      const data = processedData;
       if (Array.isArray(data)) {
         console.log('[MCP EXEC] Data is array with', data.length, 'items');
-        if (data[0]) console.log('[MCP EXEC] First item keys:', Object.keys(data[0]));
+        if (data[0]) {
+          console.log('[MCP EXEC] First item keys:', Object.keys(data[0]));
+          if (Object.keys(data[0]).length <= 2) {
+            console.log('[MCP EXEC] ⚠️ THIN RESULT: Only got', Object.keys(data[0]).join(', '));
+          }
+        }
       } else if (data.data && Array.isArray(data.data)) {
         console.log('[MCP EXEC] Data.data is array with', data.data.length, 'items');
         if (data.data[0]) {
           console.log('[MCP EXEC] First item keys:', Object.keys(data.data[0]));
-          console.log('[MCP EXEC] First item email:', data.data[0].email);
-          console.log('[MCP EXEC] First item name:', data.data[0].name);
         }
       }
     }
@@ -232,7 +250,7 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
     return {
       url: `mcp://${source.name}/${toolName}`,
       response_status: parsed.isError ? 500 : 200,
-      response_body: parsed.data || { text: parsed.text },
+      response_body: processedData || { text: parsed.text },
       duration_ms,
       error_message: parsed.isError ? parsed.text : null,
     };

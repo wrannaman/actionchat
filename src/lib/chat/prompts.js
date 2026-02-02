@@ -4,14 +4,17 @@
  * Handles building system prompts for agents.
  */
 
+import { buildSourceGuidance } from '@/lib/mcp-hints';
+
 /**
  * Build the system prompt for an agent.
  *
  * @param {object} agent - Agent config
  * @param {Array} toolRows - Tool rows from database
+ * @param {Array} sourcesWithHints - Sources with their template hints
  * @returns {string} Complete system prompt
  */
-export function buildSystemPrompt(agent, toolRows = []) {
+export function buildSystemPrompt(agent, toolRows = [], sourcesWithHints = []) {
   const parts = [];
 
   // Identity
@@ -29,6 +32,13 @@ export function buildSystemPrompt(agent, toolRows = []) {
     parts.push(buildToolsSection(toolRows));
     parts.push('');
     parts.push(GUIDELINES);
+
+    // Add source-specific guidance from templates
+    const sourceGuidance = buildSourceGuidance(sourcesWithHints);
+    if (sourceGuidance) {
+      parts.push('');
+      parts.push(sourceGuidance);
+    }
   } else {
     parts.push('');
     parts.push(NO_TOOLS_MESSAGE);
@@ -133,6 +143,17 @@ Some databases are configured as **read-only**. If a write operation fails due t
 
 ### Errors
 On failure, explain briefly and suggest a fix. Don't apologize excessively. If an API call fails, try a different approach.
+
+### Getting Complete Data from APIs
+Many APIs (especially Stripe MCP) return minimal data by default for efficiency. When you need full details:
+
+1. **Use expand parameters** - If a list endpoint returns only IDs or minimal fields, check if it has an "expand" parameter to include additional fields (like email, name, metadata).
+
+2. **Chain with fetch/retrieve** - If list results lack details you need, use a fetch/retrieve/get tool to get complete objects. For example:
+   - list_customers returns IDs → use fetch_stripe_resources for each customer's full details
+   - list_orders returns minimal data → retrieve individual orders for full info
+
+3. **Always aim for complete answers** - If the user asks for emails and you only got IDs, make follow-up calls to get the emails. Don't just show IDs.
 
 ### Never Do
 - Ask clarifying questions for simple requests
