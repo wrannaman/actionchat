@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthGuard } from "@/components/auth-guard";
@@ -753,10 +754,30 @@ function ChatInterface({
     }
   }, [currentChatId, chatKey, initialMessages]);
 
-  const { messages, status, sendMessage, setMessages } = useChat({
-    api: "/api/chat",
+  // Body ref for transport - ensures agentId and chatId are always included
+  // This is critical for tool approval responses which don't accept per-call body
+  const bodyRef = useRef({ agentId, chatId: currentChatId });
+
+  // Keep bodyRef in sync with current values
+  useEffect(() => {
+    bodyRef.current = { agentId, chatId: currentChatId };
+  }, [agentId, currentChatId]);
+
+  // Transport that always includes body params (needed for addToolApprovalResponse)
+  const transport = useMemo(
+    () => new DefaultChatTransport({
+      api: "/api/chat",
+      body: () => bodyRef.current,
+    }),
+    []
+  );
+
+  const { messages, status, sendMessage, setMessages, addToolApprovalResponse } = useChat({
+    transport,
     id: chatKey,
     initialMessages: initialMessages || [],
+    // Auto-submit when user approves a tool (clicks Confirm)
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onResponse: async (response) => {
       // Capture chatId from response header
       const newChatId = response.headers.get("X-Chat-Id");
@@ -780,7 +801,18 @@ function ChatInterface({
     },
   });
 
+  // Approval handlers for dangerous tool confirmations
+  const handleApprove = (approvalId) => {
+    addToolApprovalResponse({ id: approvalId, approved: true });
+  };
 
+  const handleReject = (approvalId) => {
+    addToolApprovalResponse({
+      id: approvalId,
+      approved: false,
+      reason: "User rejected the action",
+    });
+  };
 
   const isLoading = status === 'streaming' || status === 'submitted' || executing;
 
@@ -943,16 +975,7 @@ function ChatInterface({
                 return true;
               })
               .map((message) => {
-                // DEBUG: Log what we're passing to ChatMessage
                 const mergedToolCalls = message.toolCalls || storedToolCalls[message.id] || null;
-                if (message.role === 'assistant') {
-                  console.log('[RENDER] ════════════════════════════════════════');
-                  console.log('[RENDER] message.id:', message.id);
-                  console.log('[RENDER] message.toolCalls:', JSON.stringify(message.toolCalls, null, 2));
-                  console.log('[RENDER] storedToolCalls[id]:', JSON.stringify(storedToolCalls[message.id], null, 2));
-                  console.log('[RENDER] mergedToolCalls:', JSON.stringify(mergedToolCalls, null, 2));
-                  console.log('[RENDER] ════════════════════════════════════════');
-                }
 
                 return (
                   <div
@@ -972,6 +995,8 @@ function ChatInterface({
                           // Merge stored toolCalls (useChat may have stripped them)
                           toolCalls: mergedToolCalls,
                         }}
+                        onApprove={handleApprove}
+                        onReject={handleReject}
                       />
                     </div>
                   </div>

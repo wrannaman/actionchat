@@ -284,8 +284,6 @@ function CollapsibleToolCalls({ toolParts, totalToolCalls, onApprove, onReject }
 
 // Render messages with stored tool calls (from database after page refresh)
 function StoredToolCallsMessage({ parts, storedToolCalls }) {
-  console.log('[StoredToolCallsMessage] ════════════════════════════════════════');
-  console.log('[StoredToolCallsMessage] storedToolCalls:', JSON.stringify(storedToolCalls, null, 2));
 
   // Get any text content from parts
   const textContent = parts
@@ -301,8 +299,6 @@ function StoredToolCallsMessage({ parts, storedToolCalls }) {
   // We check that result exists and has a body (even if body is empty/null, we want to show it)
   const displayableToolCalls = storedToolCalls.filter(tc => tc.result && 'body' in tc.result);
 
-  console.log('[StoredToolCallsMessage] displayableToolCalls:', JSON.stringify(displayableToolCalls, null, 2));
-  console.log('[StoredToolCallsMessage] ════════════════════════════════════════');
 
   return (
     <div className="w-full space-y-2">

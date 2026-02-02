@@ -64,6 +64,8 @@ export function getTelemetryConfig(metadata = {}) {
     isEnabled: true,
     functionId: metadata.functionId || 'actionchat-chat',
     metadata: {
+      // Langfuse session grouping - uses chatId as sessionId
+      sessionId: metadata.chatId,
       agentId: metadata.agentId,
       agentName: metadata.agentName,
       userId: metadata.userId,
