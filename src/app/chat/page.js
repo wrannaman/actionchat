@@ -4,17 +4,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/hooks/use-auth";
 import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -25,9 +17,7 @@ import {
   Send,
   Plus,
   X,
-  LogOut,
   Loader2,
-  User,
   Zap,
   Upload,
   Key,
@@ -36,36 +26,18 @@ import {
   Trash2,
   PanelLeftClose,
   PanelLeft,
-  Activity,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { cachedFetch, clearFetchCache } from "@/lib/fetch-cache";
 import { ChatMessage } from "@/components/chat/chat-message";
+import { AuthenticatedNav } from "@/components/layout/authenticated-nav";
 import { CredentialModal } from "@/components/chat/credential-modal";
 import { ApiDetailModal } from "@/components/chat/api-detail-modal";
 import { TemplateBrowser } from "@/components/templates/template-browser";
 import { ActionsRail } from "@/components/chat/actions-rail";
 import { SlashCommandAutocomplete } from "@/components/chat/slash-command-autocomplete";
 import { useSlashCommands } from "@/hooks/use-slash-commands";
-
-function TargetIcon({ className }) {
-  return (
-    <svg viewBox="0 0 100 100" className={className} fill="none">
-      <defs>
-        <linearGradient id="targetGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#3b82f6" />
-          <stop offset="100%" stopColor="#06b6d4" />
-        </linearGradient>
-      </defs>
-      <circle cx="50" cy="50" r="45" fill="url(#targetGrad)" />
-      <circle cx="50" cy="50" r="32" fill="#0a0a0f" />
-      <circle cx="50" cy="50" r="22" fill="url(#targetGrad)" />
-      <circle cx="50" cy="50" r="10" fill="#0a0a0f" />
-      <circle cx="50" cy="50" r="5" fill="#fff" />
-    </svg>
-  );
-}
 
 // API chip component with credential status
 function ApiChip({ source, onRemove, onCredentialClick, onDetailClick, credentialInfo }) {
@@ -803,10 +775,14 @@ function ChatInterface({
 
   // Approval handlers for dangerous tool confirmations
   const handleApprove = (approvalId) => {
+    console.log('[APPROVE] Approving tool call:', approvalId);
+    console.log('[APPROVE] Current messages:', messages.length);
     addToolApprovalResponse({ id: approvalId, approved: true });
+    console.log('[APPROVE] Called addToolApprovalResponse');
   };
 
   const handleReject = (approvalId) => {
+    console.log('[REJECT] Rejecting tool call:', approvalId);
     addToolApprovalResponse({
       id: approvalId,
       approved: false,
@@ -1088,7 +1064,6 @@ function ChatInterface({
 
 // Main chat interface
 function ChatContent({ initialChatId }) {
-  const { user, logout } = useAuth();
   const router = useRouter();
 
   const [workspace, setWorkspace] = useState(null);
@@ -1403,10 +1378,6 @@ function ChatContent({ initialChatId }) {
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-  };
-
   if (loadingWorkspace) {
     return (
       <div className="h-screen bg-[#0a0a0f] flex items-center justify-center">
@@ -1420,59 +1391,7 @@ function ChatContent({ initialChatId }) {
 
   return (
     <div className="h-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden">
-      {/* Header - fixed at top */}
-      <header className="border-b border-white/5 px-4 py-3 shrink-0 z-10">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/chat" className="flex items-center gap-2">
-              <TargetIcon className="w-6 h-6" />
-              <span className="font-bold text-lg">ActionChat</span>
-            </Link>
-            {currentChatId && (
-              <span className="text-white/30 text-sm font-mono">
-                {currentChatId.slice(0, 8)}...
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isReady && (
-              <button
-                onClick={() => setActionsRailOpen(!actionsRailOpen)}
-                className={`p-2 rounded-md transition-colors cursor-pointer ${
-                  actionsRailOpen
-                    ? "bg-cyan-500/20 text-cyan-400"
-                    : "hover:bg-white/10 text-white/40 hover:text-white/70"
-                }`}
-                title="Recent Actions"
-              >
-                <Activity className="w-4 h-4" />
-              </button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="text-white/50 hover:text-white">
-                  <User className="w-4 h-4 mr-2" />
-                  {user?.email?.split("@")[0] || "User"}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-[#0d0d12] border-white/10 text-white">
-                <DropdownMenuItem asChild className="cursor-pointer">
-                  <Link href="/settings">
-                    <Key className="w-4 h-4 mr-2" />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem onClick={handleLogout} className="text-red-400 cursor-pointer">
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </header>
+      <AuthenticatedNav />
 
       {/* Main content with sidebar */}
       <div className="flex-1 flex overflow-hidden relative">
