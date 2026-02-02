@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
-import { parseOpenApiSpec } from '@/lib/openapi-parser';
-import { convertTools as convertMcpTools } from '@/lib/mcp-parser';
-import * as mcpManager from '@/lib/mcp-manager';
+import { parseOpenApiSpec } from '@/lib/tools';
+import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
 import { cookies } from 'next/headers';
 import { getPermissions, requireAdmin } from '@/utils/permissions';
 import integrationsData from '../../../../../../docs/integrations.json';
@@ -67,7 +66,6 @@ export async function POST(request, { params }) {
     let specContent = null;
     let parsedTools = [];
     let specHash = null;
-    let mcpEnv = {};
 
     if (template.type === 'openapi') {
       // Fetch and parse OpenAPI spec
@@ -125,59 +123,41 @@ export async function POST(request, { params }) {
         }
       }
     } else if (template.type === 'mcp') {
-      // Determine MCP transport and server URI
+      // Only HTTP MCP is supported (stdio doesn't scale for multi-tenant)
       const isHttpMcp = template.mcp_transport === 'http' || template.mcp_server_url;
-      let mcpServerUri;
-      let mcpAuthToken = null;
 
-      if (isHttpMcp) {
-        // HTTP MCP - use remote server URL
-        mcpServerUri = template.mcp_server_url;
+      if (!isHttpMcp) {
+        // stdio MCP templates are not supported
+        return NextResponse.json(
+          {
+            error: 'This integration requires local process spawning (stdio MCP) which is not supported.',
+            details: `The ${template.name} integration uses stdio MCP transport which cannot run in a multi-tenant environment. Only HTTP MCP integrations (like Stripe, Linear, Notion) are supported.`,
+          },
+          { status: 400 }
+        );
+      }
 
-        // For bearer auth, pass the API key as auth token
-        if (template.auth_type === 'bearer') {
-          const credField = template.auth_config?.credential_field || 'api_key';
-          mcpAuthToken = credentials[credField];
-        }
-      } else {
-        // stdio MCP - use npm package
-        let baseCommand = template.mcp_package?.startsWith('@')
-          ? `npx -y ${template.mcp_package}`
-          : template.mcp_package;
+      // HTTP MCP - build a temporary source object for the client
+      const tempSource = {
+        id: `temp-${slug}`,
+        name: template.name,
+        mcp_server_uri: template.mcp_server_url,
+      };
 
-        // Build MCP environment from credentials
-        if (template.auth_config?.env_var) {
-          const credField = template.auth_config.credential_field;
-          if (credentials[credField]) {
-            mcpEnv[template.auth_config.env_var] = credentials[credField];
-          }
-        }
-
-        // Handle permission modes (e.g., PostgreSQL read-only)
-        const permissionMode = credentials[template.auth_config?.permission_field];
-        if (permissionMode === 'read_only') {
-          // For postgres MCP, pass connection string as arg with read-only
-          // The MCP server uses the connection string from env var
-          mcpEnv['POSTGRES_READ_ONLY'] = 'true';
-        }
-
-        mcpServerUri = baseCommand;
+      // Build credentials object for the MCP client
+      let mcpCredentials = null;
+      if (template.auth_type === 'bearer') {
+        const credField = template.auth_config?.credential_field || 'api_key';
+        mcpCredentials = { token: credentials[credField] };
       }
 
       try {
         // Temporarily connect to list tools
-        const mcpConfig = {
-          mcp_server_uri: mcpServerUri,
-          mcp_transport: isHttpMcp ? 'http' : 'stdio',
-          mcp_env: mcpEnv,
-          mcp_auth_token: mcpAuthToken,
-        };
-
-        const mcpTools = await mcpManager.listTools(`temp-${slug}`, mcpConfig);
+        const mcpTools = await listMCPTools(tempSource, mcpCredentials);
         parsedTools = convertMcpTools(mcpTools, null); // source_id will be set after insert
 
         // Disconnect temp connection
-        mcpManager.disconnect(`temp-${slug}`);
+        await closeMCPClient(tempSource.id);
       } catch (mcpError) {
         console.error('[TEMPLATES] MCP connection error:', mcpError);
         return NextResponse.json(
@@ -190,24 +170,13 @@ export async function POST(request, { params }) {
     // Format credentials for storage
     const formattedCredentials = formatCredentials(template, credentials);
 
-    // Determine MCP config for source storage
+    // Determine MCP config for source storage (HTTP only)
     let sourceMcpUri = null;
     let sourceMcpTransport = null;
-    let sourceMcpEnv = null;
 
     if (template.type === 'mcp') {
-      const isHttpMcp = template.mcp_transport === 'http' || template.mcp_server_url;
-      if (isHttpMcp) {
-        sourceMcpUri = template.mcp_server_url;
-        sourceMcpTransport = 'http';
-      } else {
-        sourceMcpUri = template.mcp_package?.startsWith('@')
-          ? `npx -y ${template.mcp_package}`
-          : template.mcp_package;
-        sourceMcpTransport = 'stdio';
-        // Persist the environment including permission mode flags
-        sourceMcpEnv = { ...mcpEnv };
-      }
+      sourceMcpUri = template.mcp_server_url;
+      sourceMcpTransport = 'http';
     }
 
     // Create the source
@@ -225,7 +194,7 @@ export async function POST(request, { params }) {
       auth_config: template.auth_config || {},
       mcp_server_uri: sourceMcpUri,
       mcp_transport: sourceMcpTransport,
-      mcp_env: sourceMcpEnv,
+      mcp_env: null,
       last_synced_at: new Date().toISOString(),
     };
 

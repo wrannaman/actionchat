@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, getUserOrgId } from '@/utils/supabase/server';
 import { getPermissions, requireMember } from '@/utils/permissions';
-import { executeTool } from '@/lib/tool-executor';
+import { executeTool } from '@/lib/tools';
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';

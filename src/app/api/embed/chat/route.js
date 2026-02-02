@@ -9,7 +9,7 @@
 import { createClient } from '@/utils/supabase/server';
 import { getModelForAgent, chat, toStreamResponse } from '@/lib/ai';
 import { loadAgentTools } from '@/lib/chat';
-import { convertToolsToAISDK } from '@/lib/tools-to-ai-sdk';
+import { convertToolsToAISDK } from '@/lib/tools';
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';

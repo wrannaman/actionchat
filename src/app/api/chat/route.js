@@ -110,7 +110,7 @@ export async function POST(request) {
     // ─────────────────────────────────────────────────────────────────────────
     // 8. STREAM RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
-    const systemPrompt = buildSystemPrompt(agent, toolRows, sourcesWithHints);
+    const systemPrompt = buildSystemPrompt(agent, toolRows, sourcesWithHints, tools);
 
     console.log('[CHAT]', agent.model_provider, agent.model_name, '|', Object.keys(tools).length, 'tools');
 
@@ -121,6 +121,16 @@ export async function POST(request) {
       messages,
       tools,
       temperature: agent.temperature ?? 0.1,
+      // Langfuse tracing metadata (if LANGFUSE_* env vars are set)
+      telemetryMetadata: {
+        agentId,
+        agentName: agent.name,
+        userId: user.id,
+        chatId,
+        orgId,
+        model: agent.model_name,
+        provider: agent.model_provider,
+      },
       onFinish: async (event) => {
         console.log('[CHAT onFinish] ════════════════════════════════');
         console.log('[CHAT onFinish] text:', JSON.stringify(event.text)?.slice(0, 500));

@@ -24,9 +24,10 @@ export function ApiDetailModal({
   open,
   onOpenChange,
   source,
-  hasCredentials,
+  credentialInfo,
   onManageCredentials,
 }) {
+  const hasCredentials = credentialInfo?.has;
   const [tools, setTools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -132,12 +133,28 @@ export function ApiDetailModal({
               {hasCredentials ? (
                 <>
                   <Check className="w-4 h-4 text-green-400" />
-                  <span className="text-sm text-green-300">Credentials configured</span>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-green-300">
+                      {credentialInfo?.label || "Credentials configured"}
+                    </span>
+                    {credentialInfo?.masked && (
+                      <span className="text-xs text-green-300/60 font-mono">
+                        {credentialInfo.masked}
+                      </span>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
                   <Key className="w-4 h-4 text-yellow-400" />
-                  <span className="text-sm text-yellow-300">Credentials required</span>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-yellow-300">Credentials required</span>
+                    <span className="text-xs text-yellow-300/60">
+                      {source?.auth_type === "bearer" && "Bearer token"}
+                      {source?.auth_type === "api_key" && `API key (${source?.auth_config?.header_name || "X-API-Key"})`}
+                      {source?.auth_type === "basic" && "Basic auth"}
+                    </span>
+                  </div>
                 </>
               )}
             </div>

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
-import { parseOpenApiSpec } from '@/lib/openapi-parser';
+import { parseOpenApiSpec } from '@/lib/tools';
 import { cookies } from 'next/headers';
 import { getPermissions, requireMember, requireAdmin } from '@/utils/permissions';
 

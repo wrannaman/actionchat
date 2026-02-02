@@ -1,3 +1,9 @@
+/**
+ * OpenAPI Parser
+ * 
+ * Parse an OpenAPI 3.x spec into ActionChat source metadata and tools.
+ */
+
 import crypto from 'crypto';
 
 /**
@@ -188,3 +194,7 @@ function getRiskLevel(method) {
       return 'moderate';
   }
 }
+
+export default {
+  parseOpenApiSpec,
+};

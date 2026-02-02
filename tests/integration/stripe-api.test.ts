@@ -1,12 +1,11 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import { withTestCustomer, stripe } from "../helpers/stripe";
 
-// Import the tool executor and MCP manager from the app
-import { executeTool } from "@/lib/tool-executor";
-import * as mcpManager from "@/lib/mcp-manager";
+// Import the tool executor from the app
+import { executeTool } from "@/lib/tools";
 
-// Zod schemas for validating Stripe responses (shape, not exact content)
+// Zod schemas for validating Stripe responses
 const CustomerSchema = z.object({
   id: z.string().startsWith("cus_"),
   object: z.literal("customer"),
@@ -40,128 +39,139 @@ describe("Stripe SDK (direct)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// Stripe MCP Tests
-// Uses HTTP MCP if MCP_STRIPE_URL is set, otherwise stdio
+// Stripe OpenAPI Tests (via tool-executor)
+// Uses actual Stripe API with OpenAPI-style tool definitions
 // ═══════════════════════════════════════════════════════════════
-describe("Stripe MCP", () => {
-  afterAll(() => {
-    mcpManager.disconnectAll();
-  });
-
-  // Determine transport based on env vars
-  const useHttpMcp = !!process.env.MCP_STRIPE_URL;
-
-  // MCP config
-  const mcpConfig = useHttpMcp
-    ? {
-        mcp_server_uri: process.env.MCP_STRIPE_URL!,
-        mcp_transport: "http" as const,
-        mcp_auth_token: process.env.STRIPE_SECRET_KEY,
-      }
-    : {
-        mcp_server_uri: "npx -y @stripe/mcp --tools=all",
-        mcp_transport: "stdio" as const,
-        mcp_env: { STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY },
-      };
-
-  const mcpSource = {
-    id: "test-stripe-mcp",
-    name: "Stripe MCP Test",
-    source_type: "mcp" as const,
-    ...mcpConfig,
+describe("Stripe OpenAPI", () => {
+  // OpenAPI source config (simulating what comes from DB)
+  const openApiSource = {
+    id: "test-stripe-openapi",
+    name: "Stripe API Test",
+    source_type: "openapi" as const,
+    base_url: "https://api.stripe.com",
+    auth_type: "bearer" as const,
   };
 
-  it("discovers available tools", async () => {
-    console.log(`[Test] Using ${useHttpMcp ? "HTTP" : "stdio"} MCP transport`);
+  // Credentials
+  const credentials = {
+    token: process.env.STRIPE_SECRET_KEY,
+  };
 
-    const tools = await mcpManager.listTools("test-stripe-mcp", mcpConfig);
-
-    console.log("[Test] Available Stripe MCP tools:");
-    for (const tool of tools.slice(0, 10)) {
-      console.log(`  - ${tool.name}`);
-    }
-    if (tools.length > 10) {
-      console.log(`  ... and ${tools.length - 10} more`);
-    }
-
-    expect(tools.length).toBeGreaterThan(0);
-
-    // Should have list_customers
-    const hasListCustomers = tools.some((t: any) => t.name === "list_customers");
-    expect(hasListCustomers).toBe(true);
-  });
-
-  it("lists customers via MCP", async () => {
+  it("lists customers via OpenAPI", async () => {
     const tool = {
-      name: "stripe_list_customers",
-      mcp_tool_name: "list_customers",
-      path: "list_customers",
-      method: "MCP",
+      name: "GetCustomers",
+      path: "/v1/customers",
+      method: "GET",
       parameters: {
         type: "object",
         properties: {
-          limit: { type: "number" },
+          limit: { type: "number", in: "query" },
         },
       },
     };
 
     const result = await executeTool({
       tool,
-      source: mcpSource,
+      source: openApiSource,
       args: { limit: 3 },
-      userCredentials: useHttpMcp ? { token: process.env.STRIPE_SECRET_KEY } : null,
+      userCredentials: credentials,
     });
 
-    console.log("[Test] list_customers result:", JSON.stringify(result, null, 2));
+    console.log("[Test] list customers result:", JSON.stringify(result, null, 2).slice(0, 500));
 
     expect(result.response_status).toBe(200);
     expect(result.error_message).toBeNull();
     expect(result.response_body).toBeDefined();
+    
+    // Verify we get full customer objects with email field
+    const body = result.response_body;
+    expect(body.object).toBe("list");
+    expect(Array.isArray(body.data)).toBe(true);
+    
+    // Each customer should have full data (email field present, even if null)
+    if (body.data.length > 0) {
+      const firstCustomer = body.data[0];
+      expect(firstCustomer).toHaveProperty("email");
+      expect(firstCustomer).toHaveProperty("id");
+      expect(firstCustomer.id).toMatch(/^cus_/);
+    }
   });
 
-  it("creates a customer via MCP", async () => {
-    const testEmail = `mcp-test-${Date.now()}@actionchat-test.example`;
+  it("retrieves a specific customer with full data", async () => {
+    await withTestCustomer(async (customerId) => {
+      const tool = {
+        name: "GetCustomer",
+        path: "/v1/customers/{customer}",
+        method: "GET",
+        parameters: {
+          type: "object",
+          properties: {
+            customer: { type: "string", in: "path" },
+          },
+          required: ["customer"],
+        },
+      };
+
+      const result = await executeTool({
+        tool,
+        source: openApiSource,
+        args: { customer: customerId },
+        userCredentials: credentials,
+      });
+
+      console.log("[Test] get customer result:", JSON.stringify(result, null, 2).slice(0, 500));
+
+      expect(result.response_status).toBe(200);
+      expect(result.error_message).toBeNull();
+      
+      const customer = result.response_body;
+      expect(customer.id).toBe(customerId);
+      expect(customer.object).toBe("customer");
+      // Full data includes email
+      expect(customer).toHaveProperty("email");
+      expect(customer.email).toContain("actionchat-test");
+    });
+  });
+
+  it("creates a customer via OpenAPI", async () => {
+    const testEmail = `openapi-test-${Date.now()}@actionchat-test.example`;
 
     const tool = {
-      name: "stripe_create_customer",
-      mcp_tool_name: "create_customer",
-      path: "create_customer",
-      method: "MCP",
+      name: "CreateCustomer",
+      path: "/v1/customers",
+      method: "POST",
       parameters: {
         type: "object",
         properties: {
-          email: { type: "string" },
-          name: { type: "string" },
+          email: { type: "string", in: "body" },
+          name: { type: "string", in: "body" },
         },
       },
     };
 
     const result = await executeTool({
       tool,
-      source: mcpSource,
-      args: { email: testEmail, name: "MCP Test Customer" },
-      userCredentials: useHttpMcp ? { token: process.env.STRIPE_SECRET_KEY } : null,
+      source: openApiSource,
+      args: { email: testEmail, name: "OpenAPI Test Customer" },
+      userCredentials: credentials,
     });
 
-    console.log("[Test] create_customer result:", JSON.stringify(result, null, 2));
+    console.log("[Test] create customer result:", JSON.stringify(result, null, 2).slice(0, 500));
 
     expect(result.response_status).toBe(200);
     expect(result.error_message).toBeNull();
+    
+    const customer = result.response_body;
+    expect(customer.id).toMatch(/^cus_/);
+    expect(customer.email).toBe(testEmail);
+    expect(customer.name).toBe("OpenAPI Test Customer");
 
-    // Response should contain the customer ID
-    const bodyStr = JSON.stringify(result.response_body);
-    expect(bodyStr).toContain("cus_");
-
-    // Clean up: delete the customer we just created
-    // Extract customer ID from response
-    const match = bodyStr.match(/cus_[a-zA-Z0-9]+/);
-    if (match) {
-      try {
-        await stripe.customers.del(match[0]);
-        console.log(`[Test] Cleaned up customer: ${match[0]}`);
-      } catch (e) {
-        console.warn(`[Test] Failed to clean up customer: ${match[0]}`);
-      }
+    // Clean up
+    try {
+      await stripe.customers.del(customer.id);
+      console.log(`[Test] Cleaned up customer: ${customer.id}`);
+    } catch (e) {
+      console.warn(`[Test] Failed to clean up customer: ${customer.id}`);
     }
   });
 });
@@ -171,7 +181,7 @@ describe("Stripe MCP", () => {
 // ═══════════════════════════════════════════════════════════════
 describe("Tool Executor Utils", () => {
   it("buildUrl substitutes path params", async () => {
-    const { buildUrl } = await import("@/lib/tool-executor");
+    const { buildUrl } = await import("@/lib/tools");
     const url = buildUrl(
       "https://api.stripe.com/v1",
       "/customers/{customer_id}",
@@ -182,7 +192,7 @@ describe("Tool Executor Utils", () => {
   });
 
   it("buildUrl adds query params", async () => {
-    const { buildUrl } = await import("@/lib/tool-executor");
+    const { buildUrl } = await import("@/lib/tools");
     const url = buildUrl(
       "https://api.stripe.com/v1",
       "/customers",
@@ -198,7 +208,7 @@ describe("Tool Executor Utils", () => {
   });
 
   it("buildAuthHeaders creates bearer token", async () => {
-    const { buildAuthHeaders } = await import("@/lib/tool-executor");
+    const { buildAuthHeaders } = await import("@/lib/tools");
     const headers = buildAuthHeaders(
       { auth_type: "bearer", name: "Test" },
       { token: "sk_test_123" }

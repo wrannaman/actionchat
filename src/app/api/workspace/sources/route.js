@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, getUserOrgId } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
-import { parseOpenApiSpec } from '@/lib/openapi-parser';
+import { parseOpenApiSpec } from '@/lib/tools';
 
 export const dynamic = 'force-dynamic';
 

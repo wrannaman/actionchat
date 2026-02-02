@@ -27,10 +27,51 @@
  *   return toStreamResponse(result, { originalMessages: messages });
  */
 
-import { streamText, convertToModelMessages } from 'ai';
+import { streamText, convertToModelMessages, stepCountIs } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+// ============================================================================
+// LANGFUSE TRACING (Optional)
+// ============================================================================
+
+/**
+ * Langfuse tracing is enabled when these env vars are set:
+ * - LANGFUSE_PUBLIC_KEY
+ * - LANGFUSE_SECRET_KEY
+ * - LANGFUSE_HOST (optional, defaults to https://cloud.langfuse.com)
+ *
+ * See: https://langfuse.com/docs/integrations/vercel-ai-sdk
+ */
+const LANGFUSE_ENABLED = !!(
+  process.env.LANGFUSE_PUBLIC_KEY &&
+  process.env.LANGFUSE_SECRET_KEY
+);
+
+if (LANGFUSE_ENABLED) {
+  console.log('[AI] Langfuse tracing enabled');
+}
+
+/**
+ * Get telemetry config for AI SDK if Langfuse is enabled.
+ * Returns undefined if Langfuse is not configured.
+ */
+export function getTelemetryConfig(metadata = {}) {
+  if (!LANGFUSE_ENABLED) return undefined;
+
+  return {
+    isEnabled: true,
+    functionId: metadata.functionId || 'actionchat-chat',
+    metadata: {
+      agentId: metadata.agentId,
+      agentName: metadata.agentName,
+      userId: metadata.userId,
+      chatId: metadata.chatId,
+      ...metadata,
+    },
+  };
+}
 
 // ============================================================================
 // PROVIDER REGISTRY
@@ -168,6 +209,8 @@ export async function chat({
   maxSteps = 15, // Agentic: allow multiple rounds of tool calls for best answer
   onStepFinish,
   onFinish,
+  // Langfuse tracing metadata (optional)
+  telemetryMetadata = {},
 }) {
   if (!messages || !Array.isArray(messages)) {
     throw new Error('messages array is required');
@@ -183,14 +226,27 @@ export async function chat({
   const isReasoningModel = modelId && REASONING_MODELS.some(rm => modelId.includes(rm));
 
   // Build options
+  // NOTE: In AI SDK v6, only use stopWhen (not maxSteps) for multi-step tool calling
+  // See: https://ai-sdk.dev/cookbook/next/call-tools-multiple-steps
   const options = {
     model,
     system,
     messages: modelMessages,
     tools: hasTools ? tools : undefined,
-    maxSteps: hasTools ? maxSteps : 1,
-    onStepFinish,
+    // stopWhen controls when to stop the agent loop
+    // stepCountIs(n) stops when step count reaches n
+    stopWhen: hasTools ? stepCountIs(maxSteps) : stepCountIs(1),
+    onStepFinish: (step) => {
+      console.log('[AI STEP]', step.stepNumber || 'unknown', 'finishReason:', step.finishReason);
+      console.log('[AI STEP] toolCalls:', step.toolCalls?.length || 0);
+      console.log('[AI STEP] toolResults:', step.toolResults?.length || 0);
+      console.log('[AI STEP] text:', step.text?.slice(0, 100) || '(empty)');
+      // Call original if provided
+      if (onStepFinish) onStepFinish(step);
+    },
     onFinish,
+    // Langfuse tracing (if configured via env vars)
+    experimental_telemetry: getTelemetryConfig(telemetryMetadata),
   };
 
   // Only add temperature for non-reasoning models

@@ -306,18 +306,18 @@ function DataTable({ data, maxRows = 8 }) {
 
   // Prioritize common fields, show more columns
   const priorityKeys = ["id", "name", "email", "status", "amount", "currency", "type", "recurring", "interval", "product", "description", "created", "created_at", "updated_at"];
-  // Skip currency as a column since we show it with amount
-  const skipKeys = ["currency", "object", "livemode", "metadata"];
+  // Skip currency as a column since we show it with amount, skip long text fields
+  const skipKeys = ["currency", "object", "livemode", "metadata", "url", "text", "description"];
   const sortedKeys = [
     ...priorityKeys.filter(k => allKeys.includes(k) && !skipKeys.includes(k)),
     ...allKeys.filter(k => !priorityKeys.includes(k) && !skipKeys.includes(k))
-  ].slice(0, 10); // Show up to 10 columns
+  ].slice(0, 6); // Limit to 6 columns to prevent overflow
 
   const displayData = expanded ? data : data.slice(0, maxRows);
 
   return (
     <div className="overflow-x-auto -mx-3 px-3">
-      <table className="w-full text-xs table-fixed">
+      <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-white/10">
             {sortedKeys.map(key => (
@@ -334,7 +334,7 @@ function DataTable({ data, maxRows = 8 }) {
                 const value = item?.[key];
                 const formatted = formatNestedValue(key, value, item);
                 return (
-                  <td key={key} className="py-2 px-3">
+                  <td key={key} className="py-2 px-3 max-w-[200px] truncate">
                     {formatted !== null ? (
                       <span className={key === "amount" ? "text-green-400 font-medium" : "text-white/70"}>
                         {formatted}
@@ -385,6 +385,37 @@ function SmartResult({ data }) {
     result = data;
   }
 
+  // Handle MCP format: { content: [{ type: "text", text: "..." }], isError: false }
+  if (result && typeof result === "object" && Array.isArray(result.content) && "isError" in result) {
+    // Extract text content from MCP response
+    const textParts = result.content
+      .filter(part => part.type === "text" && part.text)
+      .map(part => part.text);
+    
+    if (textParts.length > 0) {
+      // Try to parse each text part as JSON and combine
+      const parsed = textParts.map(text => {
+        if (typeof text === "string" && (text.startsWith("[") || text.startsWith("{"))) {
+          try {
+            return JSON.parse(text);
+          } catch {
+            return text;
+          }
+        }
+        return text;
+      });
+      
+      // If we got arrays, flatten them
+      if (parsed.length === 1) {
+        result = parsed[0];
+      } else if (parsed.every(p => Array.isArray(p))) {
+        result = parsed.flat();
+      } else {
+        result = parsed;
+      }
+    }
+  }
+
   // Empty states
   if (result === null || result === undefined) {
     return <span className="text-white/40 italic">null</span>;
@@ -394,6 +425,17 @@ function SmartResult({ data }) {
   }
   if (typeof result === "object" && Object.keys(result).length === 0) {
     return <span className="text-white/40 italic">(empty)</span>;
+  }
+
+  // Unwrap common array wrapper patterns: { data: [...] }, { results: [...] }, etc.
+  if (typeof result === "object" && !Array.isArray(result)) {
+    const arrayFields = ["data", "results", "items", "records", "entries", "list", "rows", "objects", "customers", "products", "prices", "subscriptions", "invoices", "charges"];
+    for (const field of arrayFields) {
+      if (Array.isArray(result[field]) && result[field].length > 0) {
+        result = result[field];
+        break;
+      }
+    }
   }
 
   // Array of objects → table
@@ -495,7 +537,9 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
   const isLoading = state === "input-streaming" || state === "input-available";
 
   // Get the actual data and detect pagination
-  const actualData = output?._actionchat?.response_body ?? output?.result ?? output;
+  // Priority: _actionchat.response_body > result > output, then unwrap MCP format
+  const rawData = output?._actionchat?.response_body ?? output?.result ?? output;
+  const actualData = unwrapMcpFormat(rawData);
 
   // Initialize pagination on first render with output
   useEffect(() => {
@@ -849,24 +893,55 @@ export function ToolCallDisplay({ toolName, input, output, state, toolId, source
 }
 
 /**
- * Extract the data array from a response (handles Stripe's {data: [...]}, etc.)
+ * Unwrap MCP format: { content: [{ type: "text", text: "..." }], isError: false }
+ */
+function unwrapMcpFormat(data) {
+  if (!data || typeof data !== "object") return data;
+  
+  // Check if it's MCP format
+  if (Array.isArray(data.content) && "isError" in data) {
+    const textParts = data.content
+      .filter(p => p.type === "text" && p.text)
+      .map(p => p.text);
+    
+    if (textParts.length > 0) {
+      const text = textParts[0];
+      if (typeof text === "string" && (text.startsWith("[") || text.startsWith("{"))) {
+        try {
+          return JSON.parse(text);
+        } catch {
+          return text;
+        }
+      }
+      return text;
+    }
+  }
+  
+  return data;
+}
+
+/**
+ * Extract the data array from a response (handles Stripe's {data: [...]}, MCP format, etc.)
  */
 function extractDataArrayFromResponse(response) {
-  if (Array.isArray(response)) return response;
+  // First unwrap MCP format if present
+  let data = unwrapMcpFormat(response);
+  
+  if (Array.isArray(data)) return data;
 
   const arrayFields = ["data", "results", "items", "records", "entries", "list", "rows", "objects"];
   for (const field of arrayFields) {
-    if (Array.isArray(response?.[field])) {
-      return response[field];
+    if (Array.isArray(data?.[field])) {
+      return data[field];
     }
   }
 
   // If it's an object but not an array wrapper, return as single-item array
-  if (response && typeof response === "object") {
-    return [response];
+  if (data && typeof data === "object") {
+    return [data];
   }
 
-  return response;
+  return data;
 }
 
 /**
@@ -886,7 +961,24 @@ export function GroupedToolCallDisplay({ toolName, parts }) {
   // Combine all results into a single array
   const combinedResults = parts.flatMap((part) => {
     const output = part.output;
-    const data = output?._actionchat?.response_body ?? output?.result ?? output;
+    let data = output?._actionchat?.response_body ?? output?.result ?? output;
+    
+    // Handle MCP format: { content: [{ type: "text", text: "..." }], isError: false }
+    if (data && typeof data === "object" && Array.isArray(data.content) && "isError" in data) {
+      const textParts = data.content
+        .filter(p => p.type === "text" && p.text)
+        .map(p => p.text);
+      if (textParts.length > 0) {
+        // Parse first text content
+        const text = textParts[0];
+        if (typeof text === "string" && (text.startsWith("[") || text.startsWith("{"))) {
+          try { data = JSON.parse(text); } catch { data = text; }
+        } else {
+          data = text;
+        }
+      }
+    }
+    
     // Parse if stringified
     let parsed = data;
     if (typeof parsed === "string" && (parsed.startsWith("[") || parsed.startsWith("{"))) {

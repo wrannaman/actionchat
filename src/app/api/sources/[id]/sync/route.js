@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
-import { parseOpenApiSpec } from '@/lib/openapi-parser';
-import { convertTools as convertMcpTools } from '@/lib/mcp-parser';
-import * as mcpManager from '@/lib/mcp-manager';
+import { parseOpenApiSpec } from '@/lib/tools';
+import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
 import { cookies } from 'next/headers';
 import { getPermissions, requireAdmin } from '@/utils/permissions';
 
@@ -14,6 +13,18 @@ export const dynamic = 'force-dynamic';
  */
 async function syncMcpSource(supabase, source, userId) {
   try {
+    // Only HTTP MCP is supported
+    const isHttpMcp = source.mcp_server_uri?.startsWith('http://') || source.mcp_server_uri?.startsWith('https://');
+    if (!isHttpMcp) {
+      return NextResponse.json(
+        {
+          error: 'This source uses stdio MCP which is not supported.',
+          details: 'Only HTTP MCP integrations can be synced. Stdio MCP does not scale for multi-tenant deployments.',
+        },
+        { status: 400 }
+      );
+    }
+
     // Get user credentials for the MCP connection
     const { data: creds } = await supabase
       .from('user_api_credentials')
@@ -23,28 +34,19 @@ async function syncMcpSource(supabase, source, userId) {
       .eq('is_active', true)
       .single();
 
-    // Build MCP config
-    const mcpAuthToken = creds?.credentials?.token || creds?.credentials?.api_key;
-
-    const mcpConfig = {
-      mcp_server_uri: source.mcp_server_uri,
-      mcp_transport: source.mcp_transport || 'stdio',
-      mcp_auth_token: mcpAuthToken,
-      mcp_env: source.mcp_env || {},
-    };
+    const credentials = creds?.credentials;
 
     console.log('[MCP SYNC] ══════════════════════════════════════════');
     console.log('[MCP SYNC] Source:', source.name);
     console.log('[MCP SYNC] Server URI:', source.mcp_server_uri);
-    console.log('[MCP SYNC] Transport:', source.mcp_transport);
-    console.log('[MCP SYNC] Has auth token:', !!mcpAuthToken);
+    console.log('[MCP SYNC] Has credentials:', !!credentials);
     console.log('[MCP SYNC] ══════════════════════════════════════════');
 
     // Disconnect any existing connection to force fresh data
-    mcpManager.disconnect(source.id);
+    await closeMCPClient(source.id);
 
     // List tools from MCP server
-    const mcpTools = await mcpManager.listTools(source.id, mcpConfig);
+    const mcpTools = await listMCPTools(source, credentials);
 
     console.log('[MCP SYNC] Found', mcpTools.length, 'tools from MCP server');
 
@@ -145,7 +147,7 @@ async function syncMcpSource(supabase, source, userId) {
       .eq('id', source.id);
 
     // Disconnect temp connection
-    mcpManager.disconnect(source.id);
+    await closeMCPClient(source.id);
 
     return NextResponse.json({
       ok: true,

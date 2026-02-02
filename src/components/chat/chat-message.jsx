@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
 import { ToolCallDisplay, GroupedToolCallDisplay } from "./tool-call-display";
 import { ConfirmationPrompt } from "./confirmation-prompt";
 
@@ -140,34 +142,141 @@ function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {
     p.state === 'output-available'
   );
 
+  // Separate text parts from tool parts
+  const textParts = groupedParts.filter(p => p.type === 'text' && p.text?.trim());
+  const toolParts = groupedParts.filter(p => 
+    p.type === 'tool-group' || 
+    p.type?.startsWith('tool-') || 
+    p.type === 'dynamic-tool'
+  );
+  const otherParts = groupedParts.filter(p => 
+    p.type !== 'text' && 
+    p.type !== 'tool-group' && 
+    !p.type?.startsWith('tool-') && 
+    p.type !== 'dynamic-tool'
+  );
+
+  // Count total tool calls
+  const totalToolCalls = toolParts.reduce((count, part) => {
+    if (part.type === 'tool-group') {
+      return count + part.parts.length;
+    }
+    return count + 1;
+  }, 0);
+
+  // If we have both text AND tool results, collapse the tools
+  const shouldCollapse = hasText && hasToolResults && totalToolCalls > 0;
+
   return (
     <div className="w-full space-y-2">
-      {groupedParts.map((part, i) => {
-        // Render grouped tool calls
-        if (part.type === "tool-group") {
+      {/* Other parts (like reasoning) */}
+      {otherParts.map((part, i) => (
+        <AssistantPart
+          key={part.toolCallId || part.id || `other-${i}-${part.type}`}
+          part={part}
+          onApprove={onApprove}
+          onReject={onReject}
+        />
+      ))}
+
+      {/* Tool calls - collapsible when there's also text */}
+      {shouldCollapse ? (
+        <CollapsibleToolCalls 
+          toolParts={toolParts} 
+          totalToolCalls={totalToolCalls}
+          onApprove={onApprove}
+          onReject={onReject}
+        />
+      ) : (
+        toolParts.map((part, i) => {
+          if (part.type === "tool-group") {
+            return (
+              <GroupedToolCallDisplay
+                key={`group-${i}-${part.toolName}`}
+                toolName={part.toolName}
+                parts={part.parts}
+              />
+            );
+          }
           return (
-            <GroupedToolCallDisplay
-              key={`group-${i}-${part.toolName}`}
-              toolName={part.toolName}
-              parts={part.parts}
+            <AssistantPart
+              key={part.toolCallId || part.id || `tool-${i}-${part.type}`}
+              part={part}
+              onApprove={onApprove}
+              onReject={onReject}
             />
           );
-        }
-        // Render single parts
-        return (
-          <AssistantPart
-            key={part.toolCallId || part.id || `${i}-${part.type}`}
-            part={part}
-            onApprove={onApprove}
-            onReject={onReject}
-          />
-        );
-      })}
+        })
+      )}
+
+      {/* Text content - show prominently */}
+      {textParts.map((part, i) => (
+        <AssistantPart
+          key={`text-${i}`}
+          part={part}
+          onApprove={onApprove}
+          onReject={onReject}
+        />
+      ))}
+
       {/* Show a subtle message if there's only tool output and no explanation */}
       {!hasText && hasToolResults && (
         <p className="text-white/30 text-xs italic mt-2">
           ↑ API response above
         </p>
+      )}
+    </div>
+  );
+}
+
+// Collapsible tool calls component
+function CollapsibleToolCalls({ toolParts, totalToolCalls, onApprove, onReject }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Get unique tool names for summary
+  const toolNames = [...new Set(toolParts.map(p => 
+    p.type === 'tool-group' ? p.toolName : (p.toolName || p.type?.replace('tool-', ''))
+  ))];
+
+  return (
+    <div className="border border-white/10 rounded-lg bg-white/[0.02] overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white/50 hover:text-white/70 hover:bg-white/5 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5" />
+        )}
+        <Wrench className="w-3.5 h-3.5" />
+        <span>
+          {totalToolCalls} API call{totalToolCalls !== 1 ? 's' : ''}: {toolNames.join(', ')}
+        </span>
+      </button>
+      
+      {expanded && (
+        <div className="border-t border-white/10 p-2 space-y-2">
+          {toolParts.map((part, i) => {
+            if (part.type === "tool-group") {
+              return (
+                <GroupedToolCallDisplay
+                  key={`group-${i}-${part.toolName}`}
+                  toolName={part.toolName}
+                  parts={part.parts}
+                />
+              );
+            }
+            return (
+              <AssistantPart
+                key={part.toolCallId || part.id || `tool-${i}-${part.type}`}
+                part={part}
+                onApprove={onApprove}
+                onReject={onReject}
+              />
+            );
+          })}
+        </div>
       )}
     </div>
   );

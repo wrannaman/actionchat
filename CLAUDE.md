@@ -102,3 +102,61 @@ yarn lint             # ESLint
 yarn test             # Jest with coverage
 yarn test:watch       # Jest watch mode
 ```
+
+## API Integration Architecture
+
+ActionChat supports two integration types:
+
+### OpenAPI Integrations (Preferred)
+- Parse any OpenAPI 3.x spec and expose all endpoints as tools
+- Generic HTTP executor handles most APIs automatically
+- Full data access - returns complete API responses
+- Used for: Stripe, most REST APIs
+
+### MCP Integrations
+- Model Context Protocol for AI-native tool providers
+- Uses `@ai-sdk/mcp` client
+- Limited to what the MCP server exposes
+- Used for: Providers with good MCP implementations
+
+### Vendor Adapters (`/src/lib/vendors/`)
+
+Some APIs have quirks that require special handling. Instead of polluting the generic executor, we use **vendor adapters**.
+
+**Location:** `/src/lib/vendors/`
+
+**When to add an adapter:**
+- Non-JSON content types (Stripe uses `application/x-www-form-urlencoded`)
+- Custom auth patterns
+- Auto-expansion of nested data
+- Response normalization
+
+**Adapter shape:**
+```javascript
+// src/lib/vendors/{vendor}.js
+export const vendorAdapter = {
+  urlPattern: /vendor\.com/,           // Match against source.base_url
+  contentType: 'form-urlencoded',      // 'json' (default) or 'form-urlencoded'
+  
+  beforeRequest(args, tool, source) {  // Transform args before sending
+    return args;
+  },
+  
+  afterResponse(response, tool, source) {  // Transform response after receiving
+    return response;
+  },
+  
+  getHeaders(source, credentials) {    // Add custom headers
+    return {};
+  },
+};
+```
+
+**Adding a new adapter:**
+1. Create `/src/lib/vendors/{vendor}.js`
+2. Export adapter object matching the shape above
+3. Register in `/src/lib/vendors/index.js` ADAPTERS map
+4. Executor auto-detects based on `urlPattern`
+
+**Current adapters:**
+- `stripe.js` — form-urlencoded content type for Stripe API

@@ -11,8 +11,8 @@ VALUES
   -- TIER 1: HTTP MCP Integrations (Browser-native, no process spawning)
   -- ============================================================================
 
-  -- Stripe (HTTP MCP) - FLAGSHIP
-  ('2e059b2b-9cef-4440-bf7f-be6d6eeb9160', 'stripe', 'Stripe', 'Payment processing platform for internet businesses', 'payments', '/integrations/stripe.svg', 'https://docs.stripe.com/mcp', 'mcp', NULL, NULL, 'https://mcp.stripe.com', 'http', 'bearer', '{"credential_field": "api_key", "credential_label": "Secret Key", "credential_placeholder": "sk_test_... or sk_live_..."}', ARRAY['Refund a customer', 'Create invoice', 'Cancel subscription', 'List customers', 'Search documentation'], true, '{"list_expansion": {"param": "expand", "default": ["data.email", "data.name", "data.metadata"], "tool_patterns": ["list_*"]}, "fetch_enrichment": {"fetch_tool": "fetch_stripe_resources", "id_field": "id", "auto_enrich": false}, "llm_guidance": "Stripe list endpoints return minimal data by default. Use the expand parameter to include full details. For complete objects, use fetch_stripe_resources.", "response": {"detect_thin": true}}'),
+  -- Stripe (OpenAPI) - FLAGSHIP
+  ('2e059b2b-9cef-4440-bf7f-be6d6eeb9160', 'stripe', 'Stripe', 'Payment processing platform for internet businesses', 'payments', '/integrations/stripe.svg', 'https://docs.stripe.com/api', 'openapi', 'https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json', NULL, NULL, NULL, 'bearer', '{"credential_field": "api_key", "credential_label": "Secret Key", "credential_placeholder": "sk_test_... or sk_live_..."}', ARRAY['Refund a customer', 'Create invoice', 'Cancel subscription', 'List customers with full details', 'Get customer by email'], true, NULL),
 
   -- Notion (HTTP MCP)
   ('d48c08cb-3e87-4b03-9608-7a5799285c20', 'notion', 'Notion', 'All-in-one workspace for notes, docs, and databases', 'productivity', '/integrations/notion.svg', 'https://developers.notion.com/docs/mcp', 'mcp', NULL, NULL, 'https://mcp.notion.com/mcp', 'http', 'oauth', '{"provider": "notion"}', ARRAY['Create a page', 'Update a database', 'Query records', 'Add a comment', 'Search content'], true, NULL),

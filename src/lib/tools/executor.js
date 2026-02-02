@@ -1,8 +1,19 @@
-import * as mcpManager from './mcp-manager.js';
-import { parseToolResult as parseMcpResult } from './mcp-parser.js';
-import { preProcessArgs, postProcessResult } from './mcp-hints.js';
+/**
+ * Tool Executor
+ * 
+ * Executes API tools (HTTP and MCP) with proper auth, argument handling,
+ * and response formatting.
+ */
 
-const MAX_RESPONSE_SIZE = 10 * 1024; // 10KB limit for LLM context
+import { callMCPTool } from '../mcp/client.js';
+import { parseToolResult as parseMcpResult } from '../mcp/parser.js';
+import { preProcessArgs, postProcessResult } from '../mcp/hints.js';
+import { getContentType, applyBeforeRequest, applyAfterResponse, getAdapterHeaders } from '../vendors/index.js';
+
+// For successful responses, we only need a brief summary for the LLM
+// The UI renders the full data - no need to send it all back to the LLM
+const MAX_LLM_SUMMARY_SIZE = 500; // Brief summary for LLM
+const MAX_ERROR_SIZE = 2 * 1024; // More detail for errors
 
 /**
  * Build the full URL by substituting path parameters and appending query params.
@@ -20,8 +31,9 @@ export function buildUrl(baseUrl, path, args, paramSchema) {
 
   for (const [name, schema] of Object.entries(properties)) {
     const value = args[name];
-    // Skip empty values - don't send empty strings to APIs
+    // Skip empty values - don't send empty strings or empty arrays to APIs
     if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value) && value.length === 0) continue;
 
     if (schema.in === 'path') {
       resolvedPath = resolvedPath.replace(`{${name}}`, encodeURIComponent(value));
@@ -54,6 +66,7 @@ export function buildRequestBody(args, paramSchema, requestBodySchema) {
     for (const [key, value] of Object.entries(args)) {
       // Skip empty values
       if (value === undefined || value === null || value === '') continue;
+      if (Array.isArray(value) && value.length === 0) continue;
       const paramDef = paramProps[key];
       if (paramDef && (paramDef.in === 'path' || paramDef.in === 'query')) continue;
       body[key] = value;
@@ -68,9 +81,46 @@ export function buildRequestBody(args, paramSchema, requestBodySchema) {
     const value = args[key];
     // Skip empty values
     if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value) && value.length === 0) continue;
     body[key] = value;
   }
   return Object.keys(body).length > 0 ? body : null;
+}
+
+/**
+ * Build form-urlencoded body from object.
+ * Handles nested objects using Stripe's bracket notation (e.g., metadata[key]=value)
+ *
+ * @param {object} body - Body object to encode
+ * @returns {string} URL-encoded body string
+ */
+function buildFormEncodedBody(body) {
+  const params = new URLSearchParams();
+
+  function addParams(obj, prefix = '') {
+    for (const [key, value] of Object.entries(obj)) {
+      const paramKey = prefix ? `${prefix}[${key}]` : key;
+
+      if (value === null || value === undefined) {
+        continue;
+      } else if (typeof value === 'object' && !Array.isArray(value)) {
+        addParams(value, paramKey);
+      } else if (Array.isArray(value)) {
+        value.forEach((item, index) => {
+          if (typeof item === 'object') {
+            addParams(item, `${paramKey}[${index}]`);
+          } else {
+            params.append(`${paramKey}[${index}]`, String(item));
+          }
+        });
+      } else {
+        params.append(paramKey, String(value));
+      }
+    }
+  }
+
+  addParams(body);
+  return params.toString();
 }
 
 /**
@@ -143,16 +193,6 @@ export function buildAuthHeaders(source, userCredentials) {
 }
 
 /**
- * Execute an MCP tool call.
- *
- * @param {object} params
- * @param {object} params.tool - Tool row with mcp_tool_name
- * @param {object} params.source - Source with mcp_server_uri, mcp_transport, mcp_env
- * @param {object} params.args - LLM-generated arguments
- * @param {object|null} params.userCredentials - User's credentials (for env var injection)
- * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
- */
-/**
  * Strip empty values from args object.
  * LLMs often pass empty strings for optional params - APIs don't want those.
  */
@@ -160,11 +200,15 @@ function cleanArgs(args) {
   const cleaned = {};
   for (const [key, value] of Object.entries(args || {})) {
     if (value === undefined || value === null || value === '') continue;
+    if (Array.isArray(value) && value.length === 0) continue;
     cleaned[key] = value;
   }
   return cleaned;
 }
 
+/**
+ * Execute an MCP tool call.
+ */
 async function executeMcpTool({ tool, source, args, userCredentials }) {
   const startTime = Date.now();
   const toolName = tool.mcp_tool_name || tool.path;
@@ -193,28 +237,9 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
   console.log('[MCP EXEC] Has credentials:', !!userCredentials);
   console.log('[MCP EXEC] ══════════════════════════════════════════');
 
-  // Determine auth token for HTTP MCP
-  let mcpAuthToken = null;
-  if (source.mcp_transport === 'http') {
-    // For HTTP MCP with bearer auth, use the stored token
-    mcpAuthToken = userCredentials?.token || userCredentials?.api_key;
-  }
-
-  // Build MCP config, injecting user credentials
-  const mcpConfig = {
-    mcp_server_uri: source.mcp_server_uri,
-    mcp_transport: source.mcp_transport || 'stdio',
-    mcp_auth_token: mcpAuthToken,
-    mcp_env: {
-      ...(source.mcp_env || {}),
-      // Inject credentials as environment variables if provided (for stdio MCP)
-      ...(userCredentials?.env_vars || {}),
-    },
-  };
-
   try {
-    console.log('[MCP EXEC] Calling mcpManager.callTool...');
-    const result = await mcpManager.callTool(source.id, mcpConfig, toolName, processedArgs);
+    console.log('[MCP EXEC] Calling callMCPTool...');
+    const result = await callMCPTool(source, userCredentials, toolName, processedArgs);
     const duration_ms = Date.now() - startTime;
 
     console.log('[MCP EXEC] Raw result:', JSON.stringify(result, null, 2).slice(0, 8000));
@@ -269,28 +294,38 @@ async function executeMcpTool({ tool, source, args, userCredentials }) {
 
 /**
  * Execute an HTTP API tool call against the target service.
- *
- * @param {object} params
- * @param {object} params.tool - Tool row from get_agent_tools
- * @param {object} params.source - Source with auth_type, base_url, name
- * @param {object} params.args - LLM-generated arguments
- * @param {object|null} params.userCredentials - User's credentials for this source
- * @param {string|null} params.userId - User ID for per-user isolation (mock APIs)
- * @returns {{ response_status: number, response_body: any, duration_ms: number, url: string, error_message?: string }}
  */
 async function executeHttpTool({ tool, source, args, userCredentials, userId }) {
   const startTime = Date.now();
-  const url = buildUrl(source.base_url, tool.path, args, tool.parameters);
+
+  console.log('[HTTP EXEC] ══════════════════════════════════════════');
+  console.log('[HTTP EXEC] Tool:', tool.name, '|', tool.method, tool.path);
+  console.log('[HTTP EXEC] Source:', source?.name, '| base_url:', source?.base_url);
+  console.log('[HTTP EXEC] Source keys:', source ? Object.keys(source) : 'null');
+  console.log('[HTTP EXEC] Raw args:', JSON.stringify(args, null, 2));
+  console.log('[HTTP EXEC] ══════════════════════════════════════════');
+
+  // Apply vendor adapter's beforeRequest transformation
+  const processedArgs = applyBeforeRequest(args, tool, source);
+
+  const url = buildUrl(source.base_url, tool.path, processedArgs, tool.parameters);
+  console.log('[HTTP EXEC] Built URL:', url);
+
+  // Get content type from vendor adapter (defaults to 'json')
+  const contentType = getContentType(source);
+  const useFormEncoded = contentType === 'form-urlencoded';
 
   try {
     const authHeaders = buildAuthHeaders(source, userCredentials);
+    const adapterHeaders = getAdapterHeaders(source, userCredentials);
 
     const fetchOptions = {
       method: tool.method,
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': useFormEncoded ? 'application/x-www-form-urlencoded' : 'application/json',
         'Accept': 'application/json',
         ...authHeaders,
+        ...adapterHeaders,
         // Pass user ID for per-user mock data isolation
         ...(userId ? { 'X-Mock-User': userId } : {}),
       },
@@ -298,9 +333,14 @@ async function executeHttpTool({ tool, source, args, userCredentials, userId }) 
 
     // Add body for methods that support it
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(tool.method)) {
-      const body = buildRequestBody(args, tool.parameters, tool.request_body);
+      const body = buildRequestBody(processedArgs, tool.parameters, tool.request_body);
       if (body) {
-        fetchOptions.body = JSON.stringify(body);
+        if (useFormEncoded) {
+          // Convert to form-urlencoded format (Stripe style)
+          fetchOptions.body = buildFormEncodedBody(body);
+        } else {
+          fetchOptions.body = JSON.stringify(body);
+        }
       }
     }
 
@@ -308,18 +348,21 @@ async function executeHttpTool({ tool, source, args, userCredentials, userId }) 
     const duration_ms = Date.now() - startTime;
 
     let response_body;
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
+    const responseContentType = response.headers.get('content-type') || '';
+    if (responseContentType.includes('application/json')) {
       response_body = await response.json();
     } else {
       const text = await response.text();
-      response_body = { text: text.slice(0, MAX_RESPONSE_SIZE) };
+      response_body = { text: text.slice(0, MAX_ERROR_SIZE) };
     }
+
+    // Apply vendor adapter's afterResponse transformation
+    const transformedBody = applyAfterResponse(response_body, tool, source);
 
     return {
       url,
       response_status: response.status,
-      response_body,
+      response_body: transformedBody,
       duration_ms,
       error_message: response.ok ? null : `HTTP ${response.status}`,
     };
@@ -357,29 +400,90 @@ export async function executeTool({ tool, source, args, userCredentials, userId 
 }
 
 /**
- * Truncate a response body for inclusion in LLM context.
- * Returns a string summary suitable for the LLM to read.
+ * Format tool result for LLM context.
+ *
+ * IMPORTANT: The UI renders full results. The LLM only needs a brief summary
+ * to understand what happened - NOT the full data.
+ *
+ * For success: Brief summary (count, key identifiers)
+ * For errors: More detail to help diagnose
  */
 export function formatToolResult(result) {
   if (result.error_message && !result.response_body) {
     return `Error: ${result.error_message}`;
   }
 
-  const body = result.response_body;
-  let summary;
-  if (typeof body === 'string') {
-    summary = body;
-  } else {
-    summary = JSON.stringify(body, null, 2);
-  }
-
-  if (summary.length > MAX_RESPONSE_SIZE) {
-    summary = summary.slice(0, MAX_RESPONSE_SIZE) + '\n... (response truncated)';
-  }
-
   const status = result.response_status;
-  if (status >= 200 && status < 300) {
-    return summary;
+  const body = result.response_body;
+
+  // Error responses - give more detail for debugging
+  if (status < 200 || status >= 300) {
+    let errorDetail;
+    if (typeof body === 'string') {
+      errorDetail = body;
+    } else {
+      errorDetail = JSON.stringify(body, null, 2);
+    }
+    if (errorDetail.length > MAX_ERROR_SIZE) {
+      errorDetail = errorDetail.slice(0, MAX_ERROR_SIZE) + '... (truncated)';
+    }
+    return `HTTP ${status} Error:\n${errorDetail}`;
   }
-  return `HTTP ${status} Error:\n${summary}`;
+
+  // Success - return a BRIEF summary, not the full data
+  // The UI already displays the full response
+  return summarizeForLLM(body);
 }
+
+/**
+ * Create a brief summary of API response for LLM context.
+ * The UI shows full data - LLM just needs to know what happened.
+ */
+function summarizeForLLM(body) {
+  if (!body) return 'Success (empty response)';
+
+  // String response
+  if (typeof body === 'string') {
+    if (body.length <= MAX_LLM_SUMMARY_SIZE) return body;
+    return body.slice(0, MAX_LLM_SUMMARY_SIZE) + '...';
+  }
+
+  // Stripe-style list response: { data: [...], has_more: bool }
+  if (body.data && Array.isArray(body.data)) {
+    const count = body.data.length;
+    const hasMore = body.has_more ? ' (has_more: true)' : '';
+    const firstItem = body.data[0];
+
+    // Include first item's key identifiers for context
+    if (firstItem) {
+      const id = firstItem.id || '';
+      const type = firstItem.object || '';
+      const name = firstItem.name || firstItem.email || firstItem.description || '';
+      const preview = [type, name].filter(Boolean).join(': ');
+      return `Success: ${count} items returned${hasMore}. First: ${id}${preview ? ` (${preview})` : ''}`;
+    }
+    return `Success: ${count} items returned${hasMore}`;
+  }
+
+  // Single object response
+  if (body.id) {
+    const type = body.object || 'object';
+    const name = body.name || body.email || body.description || '';
+    return `Success: ${type} ${body.id}${name ? ` (${name})` : ''}`;
+  }
+
+  // Generic object - just confirm success with minimal info
+  const keys = Object.keys(body);
+  if (keys.length <= 5) {
+    return `Success: {${keys.join(', ')}}`;
+  }
+  return `Success: object with ${keys.length} fields`;
+}
+
+export default {
+  executeTool,
+  formatToolResult,
+  buildUrl,
+  buildAuthHeaders,
+  buildRequestBody,
+};

@@ -1,5 +1,11 @@
+/**
+ * Tool Converter
+ * 
+ * Convert database tool rows (from get_agent_tools RPC) into AI SDK tool definitions.
+ */
+
 import { tool, jsonSchema } from 'ai';
-import { executeTool, formatToolResult } from './tool-executor';
+import { executeTool, formatToolResult } from './executor.js';
 
 /**
  * Convert database tool rows (from get_agent_tools RPC) into AI SDK tool definitions.
@@ -179,14 +185,19 @@ function deepCleanSchema(obj) {
 
 /**
  * Create a safe, unique key for a tool. AI SDK tool keys must be valid identifiers.
+ * OpenAI limits tool names to 64 characters, so we use: name (max 55) + "_" + id (8) = 64
  */
 function sanitizeToolKey(toolName, toolId) {
   const key = toolName
     .replace(/[^a-zA-Z0-9_]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '')
-    .slice(0, 60);
+    .slice(0, 55);  // 55 + 1 (underscore) + 8 (id) = 64 chars max
 
   const shortId = toolId.slice(0, 8);
   return `${key}_${shortId}`;
 }
+
+export default {
+  convertToolsToAISDK,
+};

@@ -67,8 +67,9 @@ function TargetIcon({ className }) {
 }
 
 // API chip component with credential status
-function ApiChip({ source, onRemove, onCredentialClick, onDetailClick, hasCredentials }) {
+function ApiChip({ source, onRemove, onCredentialClick, onDetailClick, credentialInfo }) {
   const needsAuth = source.auth_type && source.auth_type !== "none" && source.auth_type !== "passthrough";
+  const hasCredentials = credentialInfo?.has;
   const showWarning = needsAuth && !hasCredentials;
 
   return (
@@ -1000,7 +1001,7 @@ function ChatInterface({
                 key={source.id}
                 source={source}
                 onRemove={onRemoveSource}
-                hasCredentials={credentialStatus[source.id]}
+                credentialInfo={credentialStatus[source.id]}
                 onCredentialClick={onCredentialClick}
                 onDetailClick={onApiDetailClick}
               />
@@ -1084,7 +1085,7 @@ function ChatContent({ initialChatId }) {
   const [savingKey, setSavingKey] = useState(false);
 
   // Credential management
-  const [credentialStatus, setCredentialStatus] = useState({}); // { sourceId: true/false }
+  const [credentialStatus, setCredentialStatus] = useState({}); // { sourceId: { has: boolean, label?: string, masked?: string } }
   const [credentialModalOpen, setCredentialModalOpen] = useState(false);
   const [selectedSourceForCreds, setSelectedSourceForCreds] = useState(null);
 
@@ -1276,7 +1277,7 @@ function ChatContent({ initialChatId }) {
 
     // Mark as having credentials if we skipped the prompt (means creds were just saved)
     if (skipCredentialPrompt) {
-      setCredentialStatus(prev => ({ ...prev, [source.id]: true }));
+      setCredentialStatus(prev => ({ ...prev, [source.id]: { has: true } }));
     }
   };
 
@@ -1290,7 +1291,7 @@ function ChatContent({ initialChatId }) {
       sourcesToCheck.map(async (source) => {
         // Only check sources that require auth
         if (!source.auth_type || source.auth_type === "none" || source.auth_type === "passthrough") {
-          statusMap[source.id] = true; // No auth needed = "has credentials"
+          statusMap[source.id] = { has: true }; // No auth needed = "has credentials"
           return;
         }
 
@@ -1298,7 +1299,12 @@ function ChatContent({ initialChatId }) {
           const res = await cachedFetch(`/api/sources/${source.id}/credentials`, {}, { ttlMs: 30000 });
           if (res.ok) {
             const data = await res.json();
-            statusMap[source.id] = data.has_credentials;
+            const activeCred = data.credentials?.find(c => c.is_active);
+            statusMap[source.id] = {
+              has: data.has_credentials,
+              label: activeCred?.label,
+              masked: activeCred?.masked_preview,
+            };
           }
         } catch (err) {
           console.error(`Failed to check credentials for ${source.name}:`, err);
@@ -1327,14 +1333,49 @@ function ChatContent({ initialChatId }) {
     setApiDetailModalOpen(true);
   };
 
-  const handleCredentialSave = (sourceId) => {
+  const handleCredentialSave = async (sourceId) => {
     clearFetchCache((key) => key.includes(`/api/sources/${sourceId}/credentials`));
-    setCredentialStatus((prev) => ({ ...prev, [sourceId]: true }));
+    // Refetch to get the label and masked preview
+    try {
+      const res = await fetch(`/api/sources/${sourceId}/credentials`);
+      if (res.ok) {
+        const data = await res.json();
+        const activeCred = data.credentials?.find(c => c.is_active);
+        setCredentialStatus((prev) => ({
+          ...prev,
+          [sourceId]: {
+            has: data.has_credentials,
+            label: activeCred?.label,
+            masked: activeCred?.masked_preview,
+          },
+        }));
+      }
+    } catch (err) {
+      // Fallback to just marking as having credentials
+      setCredentialStatus((prev) => ({ ...prev, [sourceId]: { has: true } }));
+    }
   };
 
-  const handleCredentialDelete = (sourceId) => {
+  const handleCredentialDelete = async (sourceId) => {
     clearFetchCache((key) => key.includes(`/api/sources/${sourceId}/credentials`));
-    setCredentialStatus((prev) => ({ ...prev, [sourceId]: false }));
+    // Refetch to check if any credentials remain
+    try {
+      const res = await fetch(`/api/sources/${sourceId}/credentials`);
+      if (res.ok) {
+        const data = await res.json();
+        const activeCred = data.credentials?.find(c => c.is_active);
+        setCredentialStatus((prev) => ({
+          ...prev,
+          [sourceId]: {
+            has: data.has_credentials,
+            label: activeCred?.label,
+            masked: activeCred?.masked_preview,
+          },
+        }));
+      }
+    } catch (err) {
+      setCredentialStatus((prev) => ({ ...prev, [sourceId]: { has: false } }));
+    }
   };
 
   const handleLogout = async () => {
@@ -1538,7 +1579,7 @@ function ChatContent({ initialChatId }) {
         open={apiDetailModalOpen}
         onOpenChange={setApiDetailModalOpen}
         source={selectedSourceForDetail}
-        hasCredentials={credentialStatus[selectedSourceForDetail?.id]}
+        credentialInfo={credentialStatus[selectedSourceForDetail?.id]}
         onManageCredentials={() => {
           setSelectedSourceForCreds(selectedSourceForDetail);
           setCredentialModalOpen(true);
