@@ -1,0 +1,10 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="zapierGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF4F00"/>
+      <stop offset="100%" stop-color="#FF8C00"/>
+    </linearGradient>
+  </defs>
+  <!-- Zapier Z lightning bolt -->
+  <path d="M24 2L42 2L28 20L44 20L18 46L24 28L8 28L24 2Z" fill="url(#zapierGrad)"/>
+</svg>

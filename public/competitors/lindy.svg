@@ -1,0 +1,13 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="lindyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+  </defs>
+  <!-- Lindy AI sparkle/star -->
+  <path d="M24 2l4 14 14 4-14 4-4 14-4-14-14-4 14-4 4-14z" fill="url(#lindyGrad)"/>
+  <circle cx="40" cy="38" r="4" fill="#A855F7" opacity="0.6"/>
+  <circle cx="8" cy="40" r="3" fill="#7C3AED" opacity="0.4"/>
+  <circle cx="38" cy="10" r="2" fill="#C084FC" opacity="0.5"/>
+</svg>

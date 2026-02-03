@@ -69,20 +69,27 @@ export function useSlashCommands({ agentId } = {}) {
     fetchData();
   }, [agentId]);
 
-  // Combined items for autocomplete (routines first, then tools)
-  const allItems = [...routines, ...tools];
-
   // Handle input change - update autocomplete
+  // Shows ONLY routines by default, includes tools only when searching
   const handleInputChange = useCallback((input) => {
     if (isSlashCommand(input)) {
-      // Get suggestions from both routines and tools
-      const matches = getAutocompleteSuggestions(input, allItems, 8);
+      const commandName = extractCommandName(input);
+
+      let matches;
+      if (!commandName) {
+        // Just "/" typed - show only routines (this is the primary use case for CS reps)
+        matches = routines.slice(0, 8);
+      } else {
+        // User is searching - include both routines and tools, routines first
+        const allItems = [...routines, ...tools];
+        matches = getAutocompleteSuggestions(input, allItems, 8);
+      }
+
       setSuggestions(matches);
       setShowAutocomplete(matches.length > 0);
       setSelectedIndex(0);
 
       // If exact match, show parameter hints
-      const commandName = extractCommandName(input);
       if (commandName && matches.length > 0) {
         const exactMatch = matches.find(t =>
           t.name.toLowerCase().includes(commandName.toLowerCase())
@@ -94,7 +101,7 @@ export function useSlashCommands({ agentId } = {}) {
       setSuggestions([]);
       setSelectedTool(null);
     }
-  }, [allItems]);
+  }, [routines, tools]);
 
   // Handle keyboard navigation
   const handleKeyDown = useCallback((e) => {
@@ -133,11 +140,17 @@ export function useSlashCommands({ agentId } = {}) {
     setSelectedTool(item);
     setShowAutocomplete(false);
 
-    // If it's a routine, return the prompt directly
+    // If it's a routine, return the routine details
     if (item._isRoutine) {
       // Track usage
       fetch(`/api/routines/${item.id}`, { method: 'POST' }).catch(() => {});
-      return { type: 'routine', prompt: item.prompt, name: item.name };
+      return {
+        type: 'routine',
+        prompt: item.prompt,
+        name: item.name,
+        description: item.description,
+        parameters: item.parameters || {},
+      };
     }
 
     // For tools, return the slash command format
@@ -157,6 +170,26 @@ export function useSlashCommands({ agentId } = {}) {
     setShowAutocomplete(false);
   }, []);
 
+  // Refetch routines (call after creating a new routine)
+  const refetchRoutines = useCallback(async () => {
+    try {
+      const res = await fetch('/api/routines');
+      if (res.ok) {
+        const data = await res.json();
+        const routineItems = (data.routines || []).map(r => ({
+          ...r,
+          _isRoutine: true,
+          name: r.name,
+          description: r.description || r.prompt?.slice(0, 100),
+          method: 'ROUTINE',
+        }));
+        setRoutines(routineItems);
+      }
+    } catch (err) {
+      console.error("[useSlashCommands] Error refetching routines:", err);
+    }
+  }, []);
+
   return {
     tools,
     routines,
@@ -172,6 +205,7 @@ export function useSlashCommands({ agentId } = {}) {
     handleKeyDown,
     selectTool,
     closeAutocomplete,
+    refetchRoutines,
 
     // Parsing
     parseCommand,

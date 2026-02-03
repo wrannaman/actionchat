@@ -9,7 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Key, Check, Zap, ExternalLink, RefreshCw } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Loader2, Key, Check, Zap, ExternalLink, RefreshCw, Power } from "lucide-react";
 import { toast } from "sonner";
 
 const METHOD_COLORS = {
@@ -26,8 +27,12 @@ export function ApiDetailModal({
   source,
   credentialInfo,
   onManageCredentials,
+  isEnabled = true,
+  onToggleEnabled,
+  enabledCount = 1, // How many APIs are currently enabled (for warning)
 }) {
   const hasCredentials = credentialInfo?.has;
+  const isLastEnabled = isEnabled && enabledCount === 1;
   const [tools, setTools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -119,6 +124,39 @@ export function ApiDetailModal({
             {source?.name}
           </DialogTitle>
         </DialogHeader>
+
+        {/* Enable/Disable toggle */}
+        {onToggleEnabled && (
+          <div
+            className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+              isEnabled
+                ? isLastEnabled
+                  ? "bg-yellow-500/10 border-yellow-500/20"
+                  : "bg-blue-500/10 border-blue-500/20"
+                : "bg-white/5 border-white/10"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Power className={`w-4 h-4 ${isEnabled ? (isLastEnabled ? "text-yellow-400" : "text-blue-400") : "text-white/40"}`} />
+              <div className="flex flex-col">
+                <span className={`text-sm ${isEnabled ? (isLastEnabled ? "text-yellow-300" : "text-blue-300") : "text-white/60"}`}>
+                  {isEnabled ? "Active" : "Disabled"}
+                </span>
+                <span className="text-xs text-white/40">
+                  {isLastEnabled
+                    ? "Last enabled API - disabling will remove all tools"
+                    : isEnabled
+                      ? "AI can use these endpoints"
+                      : "Hidden from AI"}
+                </span>
+              </div>
+            </div>
+            <Switch
+              checked={isEnabled}
+              onCheckedChange={() => onToggleEnabled(source?.id)}
+            />
+          </div>
+        )}
 
         {/* Auth status */}
         {needsAuth && (

@@ -2,7 +2,7 @@
 -- ActionChat — Database Schema
 -- "The Anti-UI for Internal Operations"
 --
--- 13 tables, RLS on everything, 7 helper functions, 1 status machine trigger.
+-- 12 tables, RLS on everything, 6 helper functions.
 -- Run sql/drop.sql first if re-creating.
 -- ============================================================================
 
@@ -147,7 +147,7 @@ CREATE INDEX idx_sources_org ON api_sources(org_id);
 COMMENT ON TABLE api_sources IS 'A "Scope" — one OpenAPI spec or manual endpoint collection. auth_config holds target API credentials.';
 
 -- ============================================================================
--- 5. USER_API_CREDENTIALS — per-user auth for each API source
+-- 6. USER_API_CREDENTIALS — per-user auth for each API source
 -- ============================================================================
 
 CREATE TABLE user_api_credentials (
@@ -168,7 +168,7 @@ CREATE INDEX idx_uac_active ON user_api_credentials(user_id, source_id, is_activ
 COMMENT ON TABLE user_api_credentials IS 'Per-user credentials for API sources. Supports multiple credentials per source with labels (e.g. Test/Prod).';
 
 -- ============================================================================
--- 6. TOOLS — individual API endpoints parsed from spec or manually defined
+-- 7. TOOLS — individual API endpoints parsed from spec or manually defined
 -- ============================================================================
 
 CREATE TABLE tools (
@@ -199,7 +199,7 @@ CREATE INDEX idx_tools_tags ON tools USING GIN (tags);
 COMMENT ON TABLE tools IS 'Single API endpoint. Parsed from OpenAPI spec or manually defined. operation_id is the stable sync key.';
 
 -- ============================================================================
--- 6. AGENTS — configured bot instances
+-- 8. AGENTS — configured bot instances
 -- ============================================================================
 
 CREATE TABLE agents (
@@ -222,7 +222,7 @@ CREATE INDEX idx_agents_org ON agents(org_id);
 COMMENT ON TABLE agents IS 'A configured bot. Assigned to sources via agent_sources. Soft-delete via is_active.';
 
 -- ============================================================================
--- 7. AGENT_SOURCES — M:M agent <> source with permission
+-- 9. AGENT_SOURCES — M:M agent <> source with permission
 -- ============================================================================
 
 CREATE TABLE agent_sources (
@@ -237,7 +237,7 @@ CREATE INDEX idx_as_source ON agent_sources(source_id);  -- reverse lookup: "whi
 COMMENT ON TABLE agent_sources IS 'Links agents to sources. read = GET only, read_write = all methods.';
 
 -- ============================================================================
--- 8. MEMBER_AGENT_ACCESS — per-agent RBAC for org members
+-- 10. MEMBER_AGENT_ACCESS — per-agent RBAC for org members
 -- ============================================================================
 
 CREATE TABLE member_agent_access (
@@ -252,7 +252,7 @@ CREATE INDEX idx_maa_agent ON member_agent_access(agent_id);  -- reverse lookup:
 COMMENT ON TABLE member_agent_access IS 'Grants a member access to a specific agent. owner/admin skip this — they see all agents.';
 
 -- ============================================================================
--- 9. ROUTINES — saved prompt templates (free text, LLM interprets)
+-- 11. ROUTINES — saved prompt templates (free text, LLM interprets)
 -- ============================================================================
 
 CREATE TABLE routines (
@@ -260,21 +260,24 @@ CREATE TABLE routines (
   org_id UUID NOT NULL REFERENCES org(id) ON DELETE CASCADE,
   created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  prompt TEXT NOT NULL,                     -- free text template, e.g. "Refund [email] for [amount]"
+  prompt TEXT NOT NULL,                     -- LLM-generated template from recorded session
   description TEXT,                         -- optional short description
   is_shared BOOLEAN NOT NULL DEFAULT false, -- visible to whole org or just creator
   use_count INTEGER NOT NULL DEFAULT 0,     -- track popularity
   last_used_at TIMESTAMPTZ,
+  parameters JSONB NOT NULL DEFAULT '{}',   -- extracted variables (e.g. { "email": { "type": "string", "required": true } })
+  source_chat_id UUID REFERENCES chats(id) ON DELETE SET NULL, -- original chat this was recorded from
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TRIGGER trg_routines BEFORE UPDATE ON routines FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE INDEX idx_routines_org ON routines(org_id);
 CREATE INDEX idx_routines_user ON routines(created_by);
-COMMENT ON TABLE routines IS 'Saved prompt templates. Free text, no strict schema. LLM interprets placeholders.';
+CREATE INDEX idx_routines_source_chat ON routines(source_chat_id);
+COMMENT ON TABLE routines IS 'Recorded multi-step workflows. LLM extracts pattern from chat history, identifies variables.';
 
 -- ============================================================================
--- 10. CHATS — conversation sessions
+-- 12. CHATS — conversation sessions
 -- ============================================================================
 
 CREATE TABLE chats (
@@ -295,7 +298,7 @@ CREATE INDEX idx_chats_org ON chats(org_id, created_at DESC);
 COMMENT ON TABLE chats IS 'Conversation session. org_id denormalized to avoid join in RLS.';
 
 -- ============================================================================
--- 10. MESSAGES — chat messages
+-- 13. MESSAGES — chat messages
 -- ============================================================================
 
 CREATE TABLE messages (
@@ -308,80 +311,10 @@ CREATE TABLE messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_messages_chat ON messages(chat_id, created_at);
-COMMENT ON TABLE messages IS 'Chat messages. tool_calls JSONB links to actions executed.';
+COMMENT ON TABLE messages IS 'Chat messages. tool_calls JSONB stores executed API calls inline.';
 
 -- ============================================================================
--- 11. ACTION_LOG — THE audit trail (append-mostly, immutable)
--- ============================================================================
-
-CREATE TABLE action_log (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  org_id UUID NOT NULL REFERENCES org(id) ON DELETE CASCADE,
-  agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,  -- denormalized: survives chat deletion, needed for API-key usage
-  chat_id UUID REFERENCES chats(id) ON DELETE SET NULL,
-  message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  tool_id UUID REFERENCES tools(id) ON DELETE SET NULL,
-  tool_name TEXT NOT NULL,                -- snapshot: survives tool deletion/rename
-  method TEXT NOT NULL,
-  url TEXT NOT NULL,                      -- full resolved URL
-  request_body JSONB,
-  response_status INTEGER,
-  response_body JSONB,
-  duration_ms INTEGER,
-  status TEXT NOT NULL DEFAULT 'pending_confirmation'
-    CHECK (status IN (
-      'pending_confirmation', 'confirmed', 'rejected',
-      'executing', 'completed', 'failed'
-    )),
-  requires_confirmation BOOLEAN NOT NULL DEFAULT false,
-  error_message TEXT,
-  confirmed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,  -- who confirmed/rejected (may differ from user_id if admin)
-  confirmed_at TIMESTAMPTZ,
-  executed_at TIMESTAMPTZ,
-  completed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX idx_actions_org ON action_log(org_id, created_at DESC);
-CREATE INDEX idx_actions_agent ON action_log(agent_id, created_at DESC);
-CREATE INDEX idx_actions_chat ON action_log(chat_id);
-CREATE INDEX idx_actions_user ON action_log(user_id, created_at DESC);
-CREATE INDEX idx_actions_pending ON action_log(status) WHERE status IN ('pending_confirmation', 'executing');
-COMMENT ON TABLE action_log IS 'Immutable audit trail. No DELETE policy. Status transitions enforced by trigger. tool_name is a snapshot.';
-
--- Status machine: enforce valid transitions + auto-stamp timestamps
-CREATE OR REPLACE FUNCTION enforce_action_status() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  -- Terminal states: no way out
-  IF OLD.status IN ('rejected', 'completed', 'failed') THEN
-    RAISE EXCEPTION 'action_log: cannot transition from terminal status "%"', OLD.status;
-  END IF;
-
-  -- Valid transitions
-  IF OLD.status = 'pending_confirmation' AND NEW.status NOT IN ('confirmed', 'rejected') THEN
-    RAISE EXCEPTION 'action_log: pending_confirmation can only become confirmed or rejected, not "%"', NEW.status;
-  END IF;
-  IF OLD.status = 'confirmed' AND NEW.status != 'executing' THEN
-    RAISE EXCEPTION 'action_log: confirmed can only become executing, not "%"', NEW.status;
-  END IF;
-  IF OLD.status = 'executing' AND NEW.status NOT IN ('completed', 'failed') THEN
-    RAISE EXCEPTION 'action_log: executing can only become completed or failed, not "%"', NEW.status;
-  END IF;
-
-  -- Auto-stamp timestamps on transition
-  IF NEW.status = 'confirmed' THEN NEW.confirmed_at = now(); END IF;
-  IF NEW.status = 'executing'  THEN NEW.executed_at  = now(); END IF;
-  IF NEW.status IN ('completed', 'failed') THEN NEW.completed_at = now(); END IF;
-
-  RETURN NEW;
-END; $$;
-
-CREATE TRIGGER trg_action_status BEFORE UPDATE ON action_log
-  FOR EACH ROW WHEN (OLD.status IS DISTINCT FROM NEW.status)
-  EXECUTE FUNCTION enforce_action_status();
-
--- ============================================================================
--- 12. EMBED_CONFIGS — widget deployment
+-- 14. EMBED_CONFIGS — widget deployment
 -- ============================================================================
 
 CREATE TABLE embed_configs (
@@ -402,7 +335,7 @@ CREATE INDEX idx_embed_token ON embed_configs(embed_token);
 COMMENT ON TABLE embed_configs IS 'Embeddable chat widget config. embed_token is public — security via allowed_origins + optional JWT.';
 
 -- ============================================================================
--- 13. API_KEYS — programmatic access scoped to agents
+-- 15. API_KEYS — programmatic access scoped to agents
 -- ============================================================================
 
 CREATE TABLE api_keys (
@@ -438,7 +371,6 @@ ALTER TABLE member_agent_access  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE routines             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chats                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE action_log           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE embed_configs        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_keys             ENABLE ROW LEVEL SECURITY;
 
@@ -591,17 +523,6 @@ CREATE POLICY messages_own ON messages FOR ALL USING (
 CREATE POLICY messages_audit ON messages FOR SELECT USING (
   chat_id IN (SELECT id FROM chats WHERE org_id = ANY(get_user_admin_org_ids())));
 
--- action_log: users see/insert own; admin sees all; update ONLY pending_confirmation; NO delete
-CREATE POLICY actions_own ON action_log FOR SELECT USING (user_id = auth.uid());
-CREATE POLICY actions_audit ON action_log FOR SELECT USING (
-  org_id = ANY(get_user_admin_org_ids()));
-CREATE POLICY actions_insert ON action_log FOR INSERT WITH CHECK (user_id = auth.uid());
-CREATE POLICY actions_confirm ON action_log FOR UPDATE USING (
-  status = 'pending_confirmation' AND (
-    user_id = auth.uid()
-    OR org_id = ANY(get_user_admin_org_ids())
-  ));
-
 -- embed_configs: members read; admin writes; anon reads active (widget bootstrap)
 CREATE POLICY embed_read ON embed_configs FOR SELECT USING (
   org_id = ANY(get_user_org_ids()));
@@ -698,25 +619,6 @@ BEGIN
   WHERE om.user_id = auth.uid() AND a.is_active;
 END; $$;
 
--- Action summary for a chat (respects ownership + admin audit)
-CREATE OR REPLACE FUNCTION get_chat_action_summary(chat_uuid UUID)
-RETURNS TABLE(
-  action_id UUID, tool_name TEXT, method TEXT, url TEXT,
-  status TEXT, response_status INTEGER, duration_ms INTEGER, created_at TIMESTAMPTZ
-)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-BEGIN
-  RETURN QUERY
-  SELECT al.id, al.tool_name, al.method, al.url,
-         al.status, al.response_status, al.duration_ms, al.created_at
-  FROM action_log al
-  WHERE al.chat_id = chat_uuid
-    AND (al.user_id = auth.uid()
-      OR EXISTS (SELECT 1 FROM org_members om
-                 WHERE om.org_id = al.org_id AND om.user_id = auth.uid() AND om.role IN ('owner', 'admin')))
-  ORDER BY al.created_at;
-END; $$;
-
 -- ============================================================================
 -- GRANTS
 -- ============================================================================
@@ -731,13 +633,38 @@ GRANT EXECUTE ON FUNCTION get_my_org_id()                    TO authenticated;
 GRANT EXECUTE ON FUNCTION check_domain_auto_join(TEXT)       TO authenticated;
 GRANT EXECUTE ON FUNCTION get_agent_tools(UUID)              TO authenticated;
 GRANT EXECUTE ON FUNCTION get_user_accessible_agents()       TO authenticated;
-GRANT EXECUTE ON FUNCTION get_chat_action_summary(UUID)      TO authenticated;
 
 GRANT ALL ON org, org_members, org_invites                   TO authenticated;
 GRANT SELECT ON source_templates                             TO authenticated;
 GRANT SELECT ON source_templates                             TO anon;
-GRANT ALL ON api_sources, tools, agents, agent_sources       TO authenticated;
-GRANT ALL ON member_agent_access, chats, messages            TO authenticated;
-GRANT ALL ON action_log, embed_configs, api_keys             TO authenticated;
+GRANT ALL ON api_sources, user_api_credentials, tools        TO authenticated;
+GRANT ALL ON agents, agent_sources, member_agent_access      TO authenticated;
+GRANT ALL ON routines, chats, messages                       TO authenticated;
+GRANT ALL ON embed_configs, api_keys                         TO authenticated;
 
 GRANT SELECT ON embed_configs, org_invites                   TO anon;
+
+-- ============================================================================
+-- 16. USER_ONBOARDING — onboarding survey responses
+-- ============================================================================
+
+CREATE TABLE user_onboarding (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  org_id UUID NOT NULL REFERENCES org(id) ON DELETE CASCADE,
+  heard_about TEXT,                    -- "How did you hear about us?"
+  main_problem TEXT,                   -- "What's the #1 problem you hope ActionChat solves?"
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id)                      -- One response per user
+);
+
+ALTER TABLE user_onboarding ENABLE ROW LEVEL SECURITY;
+
+-- Users can insert/view their own responses
+CREATE POLICY uo_own ON user_onboarding FOR ALL USING (user_id = auth.uid());
+
+-- Admins can view all responses in their org
+CREATE POLICY uo_admin ON user_onboarding FOR SELECT USING (
+  org_id = ANY(get_user_admin_org_ids()));
+
+GRANT ALL ON user_onboarding TO authenticated;

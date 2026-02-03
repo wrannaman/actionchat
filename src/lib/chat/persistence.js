@@ -49,17 +49,6 @@ export async function saveConversation(supabase, {
   usage,     // Token usage
   agent,     // Agent config
 }) {
-  console.log('[PERSIST] ════════════════════════════════════════');
-  console.log('[PERSIST] chatId:', chatId);
-  console.log('[PERSIST] text:', JSON.stringify(text));
-  console.log('[PERSIST] text length:', text?.length);
-  console.log('[PERSIST] steps count:', steps?.length);
-  console.log('[PERSIST] messages count:', messages?.length);
-  if (steps?.length) {
-    console.log('[PERSIST] steps:', JSON.stringify(steps, null, 2).slice(0, 2000));
-  }
-  console.log('[PERSIST] ════════════════════════════════════════');
-
   if (!chatId) return;
 
   try {
@@ -68,7 +57,6 @@ export async function saveConversation(supabase, {
     if (lastUserMsg) {
       const userText = extractText(lastUserMsg);
       if (userText) {
-        console.log('[PERSIST] Saving user message:', userText.slice(0, 100));
         const { data: userMsgData, error: userMsgError } = await supabase
           .from('messages')
           .insert({
@@ -80,9 +68,7 @@ export async function saveConversation(supabase, {
           .single();
 
         if (userMsgError) {
-          console.error('[PERSIST] ❌ Failed to save user message:', userMsgError);
-        } else {
-          console.log('[PERSIST] ✅ Saved user message:', userMsgData?.id);
+          console.error('[CHAT] Failed to save user message:', userMsgError);
         }
       }
     }
@@ -99,13 +85,7 @@ export async function saveConversation(supabase, {
         if (step.text) stepTexts.push(step.text);
       }
       responseText = stepTexts.join('\n\n');
-      console.log('[PERSIST] Extracted text from steps:', responseText?.slice(0, 200));
     }
-
-    console.log('[PERSIST] Saving assistant message...');
-    console.log('[PERSIST] responseText length:', responseText?.length);
-    console.log('[PERSIST] responseText preview:', responseText?.slice(0, 200));
-    console.log('[PERSIST] toolCalls count:', toolCalls.length);
 
     const { data: assistantMsg, error } = await supabase
       .from('messages')
@@ -124,21 +104,9 @@ export async function saveConversation(supabase, {
       .single();
 
     if (error) {
-      console.error('[PERSIST] ❌ Failed to save assistant message:', error);
+      console.error('[CHAT] Failed to save assistant message:', error);
       return;
     }
-
-    console.log('[PERSIST] ✅ Saved assistant message:', assistantMsg?.id);
-
-    // 3. Log tool executions to action_log
-    await logToolExecutions(supabase, {
-      steps,
-      orgId,
-      agentId,
-      chatId,
-      messageId: assistantMsg?.id,
-      userId,
-    });
 
   } catch (err) {
     console.error('[CHAT] Failed to persist conversation:', err);
@@ -218,9 +186,6 @@ function extractToolCalls(steps) {
     }
   }
 
-  console.log('[PERSIST] extractToolCalls found:', calls.length, 'calls');
-  console.log('[PERSIST] extractToolCalls data:', JSON.stringify(calls, null, 2).slice(0, 2000));
-
   return calls;
 }
 
@@ -249,51 +214,6 @@ function sanitizeResult(result) {
   }
 
   return result;
-}
-
-/**
- * Log tool executions to action_log for audit trail.
- */
-async function logToolExecutions(supabase, {
-  steps,
-  orgId,
-  agentId,
-  chatId,
-  messageId,
-  userId,
-}) {
-  for (const step of (steps || [])) {
-    for (const tr of (step.toolResults || [])) {
-      const meta = tr.result?._actionchat;
-      if (!meta) continue;
-
-      const isError = !!meta.error_message && meta.response_status === 0;
-      const now = new Date().toISOString();
-
-      await supabase.from('action_log').insert({
-        org_id: orgId,
-        agent_id: agentId,
-        chat_id: chatId,
-        message_id: messageId,
-        user_id: userId,
-        tool_id: meta.tool_id,
-        tool_name: meta.tool_name,
-        method: meta.method,
-        url: meta.url,
-        request_body: meta.request_body,
-        response_status: meta.response_status || null,
-        response_body: meta.response_body,
-        duration_ms: meta.duration_ms,
-        status: isError ? 'failed' : 'completed',
-        requires_confirmation: false,
-        error_message: meta.error_message,
-        confirmed_by: userId,
-        confirmed_at: now,
-        executed_at: now,
-        completed_at: now,
-      });
-    }
-  }
 }
 
 /**

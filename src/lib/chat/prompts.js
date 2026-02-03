@@ -149,6 +149,13 @@ Remember context from the conversation:
 ### Errors
 On failure, explain briefly and suggest ONE fix. Try a different approach if possible.
 
+### Endpoint Selection
+When querying for a SPECIFIC resource (customer, user, etc.), prefer resource-specific endpoints:
+- **GOOD:** \`/v1/customers/{customer}/subscriptions\` (customer-specific)
+- **AVOID:** \`/v1/subscriptions?customer=X\` (general list with filter)
+
+Resource-specific endpoints are more reliable and return complete data. General list endpoints with filters may have different default behaviors.
+
 ### Never Do
 - Call a write endpoint without required IDs (look them up first)
 - Repeat IDs/emails/data visible in the UI tables

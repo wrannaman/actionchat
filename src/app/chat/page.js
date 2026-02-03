@@ -26,6 +26,8 @@ import {
   Trash2,
   PanelLeftClose,
   PanelLeft,
+  Sparkles,
+  Square,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -35,34 +37,42 @@ import { AuthenticatedNav } from "@/components/layout/authenticated-nav";
 import { CredentialModal } from "@/components/chat/credential-modal";
 import { ApiDetailModal } from "@/components/chat/api-detail-modal";
 import { TemplateBrowser } from "@/components/templates/template-browser";
-import { ActionsRail } from "@/components/chat/actions-rail";
 import { SlashCommandAutocomplete } from "@/components/chat/slash-command-autocomplete";
+import { SaveRoutineDialog } from "@/components/chat/save-routine-dialog";
+import { OnboardingDialog } from "@/components/onboarding/onboarding-dialog";
 import { useSlashCommands } from "@/hooks/use-slash-commands";
 
 // API chip component with credential status
-function ApiChip({ source, onRemove, onCredentialClick, onDetailClick, credentialInfo }) {
+function ApiChip({ source, onRemove, onCredentialClick, onDetailClick, credentialInfo, isDisabled }) {
   const needsAuth = source.auth_type && source.auth_type !== "none" && source.auth_type !== "passthrough";
   const hasCredentials = credentialInfo?.has;
-  const showWarning = needsAuth && !hasCredentials;
+  const showWarning = needsAuth && !hasCredentials && !isDisabled;
 
   return (
     <div
       className={`flex items-center gap-2 px-3 py-1.5 border rounded-full text-sm transition-colors cursor-pointer hover:bg-white/10 ${
-        showWarning
-          ? "bg-yellow-500/10 border-yellow-500/30"
-          : "bg-white/5 border-white/10"
+        isDisabled
+          ? "bg-white/[0.02] border-white/5 opacity-50"
+          : showWarning
+            ? "bg-yellow-500/10 border-yellow-500/30"
+            : "bg-white/5 border-white/10"
       }`}
       onClick={() => onDetailClick(source)}
-      title="Click to view endpoints"
+      title={isDisabled ? "Click to enable" : "Click to view endpoints"}
     >
-      <Zap className="w-3 h-3 text-cyan-400" />
-      <span className="text-white/80">{source.name}</span>
-      <span className="text-white/30 text-xs">
-        {source.tool_count || 0} endpoint{(source.tool_count || 0) === 1 ? "" : "s"}
-      </span>
+      <Zap className={`w-3 h-3 ${isDisabled ? "text-white/30" : "text-cyan-400"}`} />
+      <span className={isDisabled ? "text-white/40 line-through" : "text-white/80"}>{source.name}</span>
+      {!isDisabled && (
+        <span className="text-white/30 text-xs">
+          {source.tool_count || 0} endpoint{(source.tool_count || 0) === 1 ? "" : "s"}
+        </span>
+      )}
+      {isDisabled && (
+        <span className="text-white/30 text-xs">off</span>
+      )}
 
       {/* Credential status indicator */}
-      {needsAuth && (
+      {!isDisabled && needsAuth && (
         <span
           className={`ml-1 ${
             hasCredentials ? "text-green-400" : "text-yellow-400"
@@ -191,7 +201,7 @@ function ChatSidebar({
                       onChange={(e) => setEditTitle(e.target.value)}
                       onBlur={handleRename}
                       onKeyDown={handleKeyDown}
-                      className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-0.5 text-sm text-white outline-none focus:border-blue-500"
+                      className="flex-1 bg-white/10 border border-white/20 rounded px-2 py-0.5 text-sm text-white outline-none focus:border-cyan-500"
                       onClick={(e) => e.stopPropagation()}
                     />
                   ) : (
@@ -499,7 +509,7 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
                     Or add a custom OpenAPI spec.
                   </p>
                   <div className="flex justify-center gap-3 pt-4">
-                    <Button onClick={() => setTab("catalog")} className="bg-blue-500 hover:bg-blue-400">
+                    <Button onClick={() => setTab("catalog")} className="bg-cyan-500 hover:bg-cyan-400 text-black">
                       Browse Catalog
                     </Button>
                     <Button onClick={() => setTab("custom")} variant="outline" className="border-white/10 hover:bg-white/5">
@@ -518,7 +528,7 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
                       <div
                         key={source.id}
                         className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
-                          isActive ? "bg-blue-500/10 border-blue-500/30" : "bg-white/[0.02] border-white/10"
+                          isActive ? "bg-cyan-500/10 border-cyan-500/30" : "bg-white/[0.02] border-white/10"
                         }`}
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -571,7 +581,7 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
                       <Button
                         onClick={() => handleFetch()}
                         disabled={loading || !url?.trim()}
-                        className="bg-blue-500 hover:bg-blue-400 px-6"
+                        className="bg-cyan-500 hover:bg-cyan-400 text-black px-6"
                       >
                         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Fetch"}
                       </Button>
@@ -638,7 +648,7 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
                     <Button
                       onClick={handleSave}
                       disabled={saving || preview.toolCount === 0}
-                      className="bg-blue-500 hover:bg-blue-400 px-8"
+                      className="bg-cyan-500 hover:bg-cyan-400 text-black px-8"
                     >
                       {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                       Add API
@@ -659,6 +669,7 @@ function AddApiDialog({ open, onOpenChange, onAdd, onRemove, activeSources }) {
 function ChatInterface({
   agentId,
   sources,
+  disabledSources = new Set(),
   onRemoveSource,
   onOpenAddDialog,
   currentChatId,
@@ -669,11 +680,16 @@ function ChatInterface({
   onCredentialClick,
   onApiDetailClick,
 }) {
+  // Filter sources for API calls (exclude disabled ones)
+  const enabledSources = sources.filter((s) => !disabledSources.has(s.id));
   const messagesEndRef = useRef(null);
   const chatIdRef = useRef(currentChatId);
   const inputRef = useRef(null);
   const [input, setInput] = useState("");
   const [executing, setExecuting] = useState(false);
+
+  // Save as Routine dialog
+  const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
 
   // Store toolCalls data separately from useChat (useChat may strip custom properties)
   // Map of message ID -> toolCalls array
@@ -689,6 +705,8 @@ function ChatInterface({
 
   // Slash command support
   const {
+    tools: slashTools,
+    routines: slashRoutines,
     showAutocomplete,
     suggestions,
     selectedIndex,
@@ -696,44 +714,45 @@ function ChatInterface({
     handleKeyDown: handleSlashKeyDown,
     selectTool,
     closeAutocomplete,
+    refetchRoutines,
     parseCommand,
     isSlashCommand,
   } = useSlashCommands({ agentId });
 
+  // Check if we're showing only routines (no search term)
+  const showingRoutinesOnly = suggestions.length > 0 && suggestions.every(s => s._isRoutine);
+
   // Update ref when prop changes
   useEffect(() => {
     chatIdRef.current = currentChatId;
+    // Also update bodyRef immediately
+    bodyRef.current = { ...bodyRef.current, chatId: currentChatId };
   }, [currentChatId]);
-
-  // Track pending chat ID to apply after stream finishes
-  const pendingChatIdRef = useRef(null);
 
   // Generate a stable chat key - use currentChatId if resuming, or a new ID for fresh chats
   // Important: This needs to update when currentChatId changes (e.g., loading a saved chat)
   const [chatKey, setChatKey] = useState(currentChatId || `new-${Date.now()}`);
 
-  // Sync chatKey when currentChatId changes (e.g., navigating to a saved chat)
+  // Sync chatKey ONLY when loading a SAVED chat (has initialMessages)
+  // Don't sync when we just created a new chat during send - that would reset useChat
   useEffect(() => {
-    console.log('[CHAT KEY] currentChatId:', currentChatId, 'chatKey:', chatKey, 'initialMessages:', initialMessages?.length);
-
-    if (currentChatId && currentChatId !== chatKey) {
-      console.log('[CHAT KEY] Updating chatKey to:', currentChatId);
+    // Only update chatKey when LOADING a saved chat (has messages already)
+    if (currentChatId && currentChatId !== chatKey && initialMessages?.length > 0) {
       setChatKey(currentChatId);
     } else if (!currentChatId && !chatKey.startsWith('new-')) {
-      // Starting a new chat
-      console.log('[CHAT KEY] Starting new chat');
+      // Starting a fresh new chat (user clicked "New Chat")
       setChatKey(`new-${Date.now()}`);
     }
   }, [currentChatId, chatKey, initialMessages]);
 
   // Body ref for transport - ensures agentId and chatId are always included
   // This is critical for tool approval responses which don't accept per-call body
-  const bodyRef = useRef({ agentId, chatId: currentChatId });
+  const bodyRef = useRef({ agentId, chatId: currentChatId, enabledSourceIds: enabledSources.map(s => s.id) });
 
   // Keep bodyRef in sync with current values
   useEffect(() => {
-    bodyRef.current = { agentId, chatId: currentChatId };
-  }, [agentId, currentChatId]);
+    bodyRef.current = { agentId, chatId: currentChatId, enabledSourceIds: enabledSources.map(s => s.id) };
+  }, [agentId, currentChatId, enabledSources]);
 
   // Transport that always includes body params (needed for addToolApprovalResponse)
   const transport = useMemo(
@@ -744,31 +763,22 @@ function ChatInterface({
     []
   );
 
-  const { messages, status, sendMessage, setMessages, addToolApprovalResponse } = useChat({
+  const { messages, status, sendMessage, setMessages, addToolApprovalResponse, stop } = useChat({
     transport,
     id: chatKey,
     initialMessages: initialMessages || [],
     // Auto-submit when user approves a tool (clicks Confirm)
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onResponse: async (response) => {
-      // Capture chatId from response header
-      const newChatId = response.headers.get("X-Chat-Id");
-      if (newChatId && newChatId !== chatIdRef.current) {
-        pendingChatIdRef.current = newChatId;
-      }
-    },
+    // Chat is pre-created in handleSubmit, so we don't need to capture it from headers
     onFinish: () => {
-      // Apply pending chat ID after stream is complete
-      if (pendingChatIdRef.current) {
-        const newId = pendingChatIdRef.current;
-        chatIdRef.current = newId;
-        setCurrentChatId(newId);
-        setChatKey(newId); // Update the chat key to match the new chat
-        onChatCreated?.(newId);
-        pendingChatIdRef.current = null;
-      }
+      // Nothing to do - chat list is refreshed when chat is created
     },
     onError: (err) => {
+      // Don't show error toast for user-initiated cancellation
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        // User cancelled - this is expected, not an error
+        return;
+      }
       toast.error(err.message || "Chat failed - check your API key in settings");
     },
   });
@@ -790,17 +800,66 @@ function ChatInterface({
     });
   };
 
-  const isLoading = status === 'streaming' || status === 'submitted' || executing;
+  // Track different loading states for UI
+  const isStreaming = status === 'streaming';
+  const isSubmitting = status === 'submitted';
+  const isLoading = isStreaming || isSubmitting || executing;
+  // Can stop when streaming OR when waiting for first chunk (submitted)
+  // This allows cancelling slow initial responses
+  const canStop = isStreaming || isSubmitting;
+
+  // Track if we've already initiated a stop to prevent duplicate toasts
+  const stoppingRef = useRef(false);
+
+  // Reset stopping flag when status changes to ready (stop completed)
+  useEffect(() => {
+    if (status === 'ready' || status === 'error') {
+      stoppingRef.current = false;
+    }
+  }, [status]);
+
+  // Stop handler with user feedback (debounced via ref)
+  const handleStop = useCallback(() => {
+    if (!canStop || stoppingRef.current) return;
+    stoppingRef.current = true;
+    stop();
+    toast.info("Generation stopped");
+  }, [canStop, stop]);
+
+  // Global Escape key listener - works even when input isn't focused
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === "Escape" && canStop) {
+        e.preventDefault();
+        handleStop();
+      }
+    };
+
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    return () => document.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [canStop, handleStop]);
 
   // Handle input change with slash command detection
   const handleChange = (e) => {
     const value = e.target.value;
     setInput(value);
     handleInputChange(value);
+
+    // Clear selected routine if user changed the input away from it
+    if (selectedRoutine && !value.startsWith(`/${selectedRoutine.name}`)) {
+      setSelectedRoutine(null);
+    }
   };
 
-  // Handle keyboard events for autocomplete navigation
+  // Handle keyboard events for autocomplete navigation and cancel
   const handleKeyDown = (e) => {
+    // Escape key stops generation when streaming/submitted
+    if (e.key === "Escape" && canStop) {
+      e.preventDefault();
+      handleStop();
+      return;
+    }
+
     const result = handleSlashKeyDown(e);
     if (result === "handled") return;
     if (result?.type === "select") {
@@ -809,16 +868,21 @@ function ChatInterface({
     }
   };
 
+  // Track selected routine for when user submits
+  const [selectedRoutine, setSelectedRoutine] = useState(null);
+
   // Handle selecting a tool or routine from autocomplete
   const handleSelectItem = (item) => {
     const result = selectTool(item);
 
     if (result.type === 'routine') {
-      // Routine selected - insert the prompt directly
-      setInput(result.prompt);
-      toast.success(`Routine "${result.name}" loaded`);
+      // Routine selected - insert as slash command so user can add context
+      setSelectedRoutine(result);
+      setInput(`/${result.name} `);
+      // Keep focus on input so user can type additional context
     } else {
       // Tool selected - insert the slash command
+      setSelectedRoutine(null);
       setInput(result.command);
     }
   };
@@ -868,36 +932,116 @@ function ChatInterface({
     }
   };
 
+  // Pre-create chat if this is a new conversation
+  const ensureChatExists = async (messageText) => {
+    console.log('[ENSURE CHAT] currentChatId:', currentChatId, 'chatIdRef:', chatIdRef.current);
+
+    // Use ref as source of truth (React state is async)
+    if (chatIdRef.current) {
+      console.log('[ENSURE CHAT] Already have chat ID:', chatIdRef.current);
+      return chatIdRef.current;
+    }
+
+    console.log('[ENSURE CHAT] Creating new chat...');
+
+    // Create chat before sending first message
+    try {
+      const res = await fetch("/api/workspace/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId,
+          title: messageText.slice(0, 100),
+        }),
+      });
+
+      console.log('[ENSURE CHAT] Response status:', res.status);
+
+      if (res.ok) {
+        const data = await res.json();
+        const newChatId = data.chat?.id;
+
+        console.log('[ENSURE CHAT] Created chat:', newChatId);
+
+        if (!newChatId) {
+          console.error('[ENSURE CHAT] No chat ID in response:', data);
+          return null;
+        }
+
+        // Update refs and state - but NOT chatKey!
+        // Changing chatKey would reset useChat and lose the message
+        chatIdRef.current = newChatId;
+        bodyRef.current = { ...bodyRef.current, chatId: newChatId };
+        setCurrentChatId(newChatId);
+        // DON'T call setChatKey here - it would reset useChat state
+
+        // Update URL
+        window.history.replaceState(null, "", `/chat/${newChatId}`);
+        console.log('[ENSURE CHAT] URL updated to:', `/chat/${newChatId}`);
+
+        // Refresh chat list
+        onChatCreated?.(newChatId);
+
+        return newChatId;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        console.error('[ENSURE CHAT] Failed:', res.status, errData);
+      }
+    } catch (err) {
+      console.error("[ENSURE CHAT] Error:", err);
+    }
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
     closeAutocomplete();
 
-    // Check if this is a slash command
+    // Determine the message text
+    let messageText = input;
+
+    // Check if this is a routine execution (user selected from "/" menu)
+    if (selectedRoutine && input.startsWith(`/${selectedRoutine.name}`)) {
+      const additionalContext = input.slice(`/${selectedRoutine.name}`.length).trim();
+      messageText = `Run the "${selectedRoutine.name}" routine:\n\n${selectedRoutine.prompt}`;
+      if (additionalContext) {
+        messageText += `\n\nAdditional context: ${additionalContext}`;
+      }
+    }
+
+    // Check if this is a tool slash command
     if (isSlashCommand(input)) {
       const parsed = parseCommand(input);
       if (parsed) {
-        // Execute directly via API
         await executeSlashCommand(parsed.tool, parsed.params);
         setInput("");
+        setSelectedRoutine(null);
         return;
       }
-      // If command not found, send as regular message
       toast.info("Unknown command, sending as message");
     }
 
+    // Ensure chat exists before sending (creates one if needed)
+    const chatId = await ensureChatExists(messageText);
+    console.log('[SUBMIT] Using chatId:', chatId);
+
+    if (!chatId) {
+      toast.error("Failed to create chat");
+      return;
+    }
+
     sendMessage(
-      { text: input },
-      { body: { agentId, chatId: currentChatId } }
+      { text: messageText },
+      { body: { agentId, chatId } }
     );
     setInput("");
+    setSelectedRoutine(null);
   };
 
-  // Load messages when initialMessages change (switching chats)
+  // Load/clear messages when initialMessages change (switching chats or new chat)
   useEffect(() => {
-    console.log('[SET MESSAGES] ════════════════════════════════════════');
-    console.log('[SET MESSAGES] initialMessages:', JSON.stringify(initialMessages, null, 2));
     if (initialMessages && initialMessages.length > 0) {
       setMessages(initialMessages);
 
@@ -909,9 +1053,11 @@ function ChatInterface({
         }
       });
       setStoredToolCalls(map);
-      console.log('[SET MESSAGES] storedToolCalls map:', JSON.stringify(map, null, 2));
+    } else if (initialMessages && initialMessages.length === 0) {
+      // New chat - clear messages
+      setMessages([]);
+      setStoredToolCalls({});
     }
-    console.log('[SET MESSAGES] ════════════════════════════════════════');
   }, [initialMessages, setMessages]);
 
   // Auto-scroll
@@ -927,9 +1073,20 @@ function ChatInterface({
           {messages.length === 0 ? (
             <div className="text-center py-12">
               <h2 className="text-2xl font-bold mb-2">What would you like to do?</h2>
-              <p className="text-white/40">
-                {sources.reduce((sum, s) => sum + (s.tool_count || 0), 0)} endpoints available across {sources.length} API{sources.length === 1 ? "" : "s"}
-              </p>
+              {enabledSources.length === 0 && sources.length > 0 ? (
+                <p className="text-yellow-400/80">
+                  All APIs are disabled. Click an API chip to re-enable.
+                </p>
+              ) : enabledSources.length === 0 ? (
+                <p className="text-white/40">
+                  No APIs connected yet
+                </p>
+              ) : (
+                <p className="text-white/40 flex items-center justify-center gap-1.5">
+                  {enabledSources.map(s => s.name).join(", ")}
+                  <Check className="w-4 h-4 text-green-400" />
+                </p>
+              )}
             </div>
           ) : (
             messages
@@ -961,7 +1118,7 @@ function ChatInterface({
                     <div
                       className={`rounded-2xl px-4 py-3 overflow-x-auto ${
                         message.role === "user"
-                          ? "max-w-[75%] bg-blue-500 text-white"
+                          ? "max-w-[75%] bg-cyan-500 text-black"
                           : "max-w-[90%] bg-white/5 border border-white/10 text-white/90"
                       }`}
                     >
@@ -1005,6 +1162,7 @@ function ChatInterface({
                 credentialInfo={credentialStatus[source.id]}
                 onCredentialClick={onCredentialClick}
                 onDetailClick={onApiDetailClick}
+                isDisabled={disabledSources.has(source.id)}
               />
             ))}
             <button
@@ -1014,6 +1172,21 @@ function ChatInterface({
               <Plus className="w-3 h-3" />
               Add API
             </button>
+
+            {/* Save as Routine button - appears when chat has tool calls */}
+            {currentChatId && messages.some(m =>
+              m.toolCalls?.length > 0 ||
+              storedToolCalls[m.id]?.length > 0 ||
+              m.parts?.some(p => p.type === 'dynamic-tool' || p.type?.startsWith('tool-'))
+            ) && (
+              <button
+                onClick={() => setSaveRoutineOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 border border-cyan-500/30 bg-cyan-500/10 rounded-full text-sm text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-500/50 transition-colors cursor-pointer ml-auto"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Save as Routine
+              </button>
+            )}
           </div>
 
           {/* Input with slash command autocomplete */}
@@ -1028,6 +1201,8 @@ function ChatInterface({
                   inputRef.current?.focus();
                 }}
                 onHover={() => {}}
+                toolCount={slashTools?.length || 0}
+                showingRoutinesOnly={showingRoutinesOnly}
               />
             )}
 
@@ -1040,24 +1215,43 @@ function ChatInterface({
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message or /command..."
                 disabled={isLoading}
-                className="flex-1 bg-white/5 border border-white/10 h-12 text-base px-3 rounded-md text-white placeholder:text-white/30 outline-none focus:border-blue-500"
+                className="flex-1 bg-white/5 border border-white/10 h-12 text-base px-3 rounded-md text-white placeholder:text-white/30 outline-none focus:border-cyan-500"
                 autoFocus
               />
-              <Button
-                type="submit"
-                disabled={!input.trim() || isLoading}
-                className="h-12 px-4 bg-blue-500 hover:bg-blue-400"
-              >
-                {isLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Send className="w-5 h-5" />
-                )}
-              </Button>
+              {canStop ? (
+                <Button
+                  type="button"
+                  onClick={handleStop}
+                  className="h-12 px-4 bg-red-500 hover:bg-red-400"
+                  title="Stop generating (Esc)"
+                >
+                  <Square className="w-5 h-5 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  disabled={!input.trim() || isLoading}
+                  className="h-12 px-4 bg-cyan-500 hover:bg-cyan-400 text-black"
+                >
+                  {isLoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
+                </Button>
+              )}
             </form>
           </div>
         </div>
       </div>
+
+      {/* Save as Routine Dialog */}
+      <SaveRoutineDialog
+        open={saveRoutineOpen}
+        onOpenChange={setSaveRoutineOpen}
+        chatId={currentChatId}
+        onSaved={() => refetchRoutines()}
+      />
     </>
   );
 }
@@ -1070,7 +1264,6 @@ function ChatContent({ initialChatId }) {
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [actionsRailOpen, setActionsRailOpen] = useState(false);
 
   // Chat state
   const [chats, setChats] = useState([]);
@@ -1092,6 +1285,50 @@ function ChatContent({ initialChatId }) {
   // API detail modal
   const [apiDetailModalOpen, setApiDetailModalOpen] = useState(false);
   const [selectedSourceForDetail, setSelectedSourceForDetail] = useState(null);
+
+  // Disabled sources - persisted to localStorage
+  const [disabledSources, setDisabledSources] = useState(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const stored = localStorage.getItem('actionchat:disabledSources');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Persist disabled sources to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('actionchat:disabledSources', JSON.stringify([...disabledSources]));
+    } catch {
+      // localStorage not available
+    }
+  }, [disabledSources]);
+
+  // Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+
+  // Check onboarding status on mount
+  useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        const res = await fetch("/api/user/org-status");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.show_onboarding_form) {
+            setShowOnboarding(true);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check onboarding status:", err);
+      } finally {
+        setOnboardingChecked(true);
+      }
+    };
+    checkOnboarding();
+  }, []);
 
   // Load workspace and chats on mount
   useEffect(() => {
@@ -1211,13 +1448,11 @@ function ChatContent({ initialChatId }) {
     }
   };
 
-  const handleChatCreated = useCallback((chatId) => {
-    // Clear chats cache before refreshing list
+  const handleChatCreated = useCallback(() => {
+    // Clear chats cache and refresh list (URL already updated via replaceState)
     clearFetchCache((key) => key.includes("/api/workspace/chats"));
-    // Update URL and refresh chat list
-    router.push(`/chat/${chatId}`, { scroll: false });
     loadChats();
-  }, [router]);
+  }, []);
 
   const handleSaveApiKey = async () => {
     if (!apiKey.trim()) return;
@@ -1333,6 +1568,20 @@ function ChatContent({ initialChatId }) {
     setApiDetailModalOpen(true);
   };
 
+  const handleToggleSourceEnabled = (sourceId) => {
+    setDisabledSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+        toast.success("API enabled");
+      } else {
+        next.add(sourceId);
+        toast.info("API disabled");
+      }
+      return next;
+    });
+  };
+
   const handleCredentialSave = async (sourceId) => {
     clearFetchCache((key) => key.includes(`/api/sources/${sourceId}/credentials`));
     // Refetch to get the label and masked preview
@@ -1381,7 +1630,7 @@ function ChatContent({ initialChatId }) {
   if (loadingWorkspace) {
     return (
       <div className="h-screen bg-[#0a0a0f] flex items-center justify-center">
-        <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+        <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
       </div>
     );
   }
@@ -1410,32 +1659,25 @@ function ChatContent({ initialChatId }) {
         {isReady ? (
           loadingMessages ? (
             <div className="flex-1 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+              <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
             </div>
           ) : (
-            <>
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <ChatInterface
-                  key={currentChatId || 'new'}
-                  agentId={workspace.agent_id}
-                  sources={sources}
-                  onRemoveSource={handleRemoveSource}
-                  onOpenAddDialog={() => setAddDialogOpen(true)}
-                  currentChatId={currentChatId}
-                  setCurrentChatId={setCurrentChatId}
-                  initialMessages={currentMessages}
-                  onChatCreated={handleChatCreated}
-                  credentialStatus={credentialStatus}
-                  onCredentialClick={handleCredentialClick}
-                  onApiDetailClick={handleApiDetailClick}
-                />
-              </div>
-              <ActionsRail
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <ChatInterface
                 agentId={workspace.agent_id}
-                isOpen={actionsRailOpen}
-                onToggle={() => setActionsRailOpen(!actionsRailOpen)}
+                sources={sources}
+                disabledSources={disabledSources}
+                onRemoveSource={handleRemoveSource}
+                onOpenAddDialog={() => setAddDialogOpen(true)}
+                currentChatId={currentChatId}
+                setCurrentChatId={setCurrentChatId}
+                initialMessages={currentMessages}
+                onChatCreated={handleChatCreated}
+                credentialStatus={credentialStatus}
+                onCredentialClick={handleCredentialClick}
+                onApiDetailClick={handleApiDetailClick}
               />
-            </>
+            </div>
           )
         ) : (
           <main className="flex-1 overflow-y-auto px-4 py-6">
@@ -1444,7 +1686,7 @@ function ChatContent({ initialChatId }) {
                 {!workspace?.has_api_key ? (
                   <div className="max-w-sm mx-auto space-y-4">
                     <div className="w-12 h-12 mx-auto rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
-                      <Key className="w-6 h-6 text-blue-400" />
+                      <Key className="w-6 h-6 text-cyan-400" />
                     </div>
                     <h2 className="text-xl font-bold">Add your OpenAI API key</h2>
                     <p className="text-white/40 text-sm">
@@ -1462,7 +1704,7 @@ function ChatContent({ initialChatId }) {
                       <Button
                         onClick={handleSaveApiKey}
                         disabled={!apiKey.trim() || savingKey}
-                        className="bg-blue-500 hover:bg-blue-400"
+                        className="bg-cyan-500 hover:bg-cyan-400 text-black"
                       >
                         {savingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                       </Button>
@@ -1486,14 +1728,14 @@ function ChatContent({ initialChatId }) {
                     <p className="text-white/40 text-sm">
                       Connect your first API to start chatting
                     </p>
-                    <Button onClick={() => setAddDialogOpen(true)} className="bg-blue-500 hover:bg-blue-400">
+                    <Button onClick={() => setAddDialogOpen(true)} className="bg-cyan-500 hover:bg-cyan-400 text-black">
                       <Plus className="w-4 h-4 mr-2" />
                       Add API
                     </Button>
                   </div>
                 ) : (
                   <div className="flex items-center justify-center py-12">
-                    <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                    <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
                   </div>
                 )}
               </div>
@@ -1528,6 +1770,15 @@ function ChatContent({ initialChatId }) {
           setSelectedSourceForCreds(selectedSourceForDetail);
           setCredentialModalOpen(true);
         }}
+        isEnabled={selectedSourceForDetail ? !disabledSources.has(selectedSourceForDetail.id) : true}
+        onToggleEnabled={handleToggleSourceEnabled}
+        enabledCount={sources.filter(s => !disabledSources.has(s.id)).length}
+      />
+
+      <OnboardingDialog
+        open={showOnboarding}
+        onOpenChange={setShowOnboarding}
+        onComplete={() => setShowOnboarding(false)}
       />
     </div>
   );

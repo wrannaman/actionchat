@@ -5,9 +5,9 @@
 
 -- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS
+  user_onboarding,
   api_keys,
   embed_configs,
-  action_log,
   messages,
   chats,
   routines,
@@ -25,7 +25,6 @@ CASCADE;
 
 -- Drop all functions
 DROP FUNCTION IF EXISTS set_updated_at CASCADE;
-DROP FUNCTION IF EXISTS enforce_action_status CASCADE;
 DROP FUNCTION IF EXISTS get_user_org_ids CASCADE;
 DROP FUNCTION IF EXISTS get_user_admin_org_ids CASCADE;
 DROP FUNCTION IF EXISTS get_user_owner_org_ids CASCADE;
@@ -36,4 +35,3 @@ DROP FUNCTION IF EXISTS get_my_org_id CASCADE;
 DROP FUNCTION IF EXISTS check_domain_auto_join CASCADE;
 DROP FUNCTION IF EXISTS get_agent_tools CASCADE;
 DROP FUNCTION IF EXISTS get_user_accessible_agents CASCADE;
-DROP FUNCTION IF EXISTS get_chat_action_summary CASCADE;

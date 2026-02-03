@@ -18,16 +18,26 @@ import { getWrappedMCPTools } from '@/lib/mcp';
  * @param {object} supabase - Supabase client
  * @param {string} agentId - Agent UUID
  * @param {string} userId - User ID (for credentials)
+ * @param {object} options - Optional settings
+ * @param {string[]} options.enabledSourceIds - If provided, only load tools from these sources
  * @returns {Promise<{tools, toolRows, sourceIds, sourcesWithHints}>}
  */
-export async function loadAgentTools(supabase, agentId, userId) {
+export async function loadAgentTools(supabase, agentId, userId, options = {}) {
+  const { enabledSourceIds } = options;
+
   // Get agent-source links
   const { data: links } = await supabase
     .from('agent_sources')
     .select('source_id, permission')
     .eq('agent_id', agentId);
 
-  const sourceIds = links?.map(l => l.source_id) || [];
+  let sourceIds = links?.map(l => l.source_id) || [];
+
+  // Filter to only enabled sources if specified
+  if (enabledSourceIds?.length > 0) {
+    const enabledSet = new Set(enabledSourceIds);
+    sourceIds = sourceIds.filter(id => enabledSet.has(id));
+  }
 
   if (!sourceIds.length) {
     return { tools: {}, toolRows: [], sourceIds: [], sourcesWithHints: [] };

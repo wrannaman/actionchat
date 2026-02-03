@@ -10,7 +10,7 @@
  */
 
 import { createClient } from '@/utils/supabase/server';
-import { getModelForAgent, chat, toStreamResponse } from '@/lib/ai';
+import { getModelForAgent, chat, toStreamResponse, isAbortError } from '@/lib/ai';
 import {
   authenticate,
   AuthError,
@@ -20,6 +20,84 @@ import {
   buildSystemPrompt,
   getFirstUserMessageText,
 } from '@/lib/chat';
+
+/**
+ * Clean messages to remove incomplete tool calls.
+ * This prevents AI_MissingToolResultsError when user cancels mid-tool-call.
+ */
+function cleanMessages(messages) {
+  if (!messages?.length) return messages;
+
+  // Collect all tool call IDs and result IDs
+  const toolCallIds = new Set();
+  const toolResultIds = new Set();
+
+  for (const msg of messages) {
+    // Check parts for tool calls and results
+    if (msg.parts) {
+      for (const part of msg.parts) {
+        if (part.type === 'tool-invocation' || part.type === 'tool-call') {
+          if (part.toolCallId) toolCallIds.add(part.toolCallId);
+        }
+        if (part.type === 'tool-result') {
+          if (part.toolCallId) toolResultIds.add(part.toolCallId);
+        }
+      }
+    }
+    // Also check toolInvocations (useChat format)
+    if (msg.toolInvocations) {
+      for (const inv of msg.toolInvocations) {
+        if (inv.toolCallId) {
+          toolCallIds.add(inv.toolCallId);
+          if (inv.state === 'result') {
+            toolResultIds.add(inv.toolCallId);
+          }
+        }
+      }
+    }
+  }
+
+  // Find orphaned tool calls (calls without results)
+  const orphanedIds = new Set([...toolCallIds].filter(id => !toolResultIds.has(id)));
+
+  if (orphanedIds.size === 0) return messages;
+
+  console.log('[CHAT] Cleaning', orphanedIds.size, 'orphaned tool calls:', [...orphanedIds]);
+
+  // Filter out messages/parts with orphaned tool calls
+  return messages.map(msg => {
+    if (!msg.parts) return msg;
+
+    const cleanedParts = msg.parts.filter(part => {
+      if (part.type === 'tool-invocation' || part.type === 'tool-call') {
+        return !orphanedIds.has(part.toolCallId);
+      }
+      return true;
+    });
+
+    // Also clean toolInvocations
+    const cleanedInvocations = msg.toolInvocations?.filter(inv => {
+      return !orphanedIds.has(inv.toolCallId);
+    });
+
+    return {
+      ...msg,
+      parts: cleanedParts,
+      toolInvocations: cleanedInvocations,
+    };
+  }).filter(msg => {
+    // Remove assistant messages that are now empty
+    if (msg.role === 'assistant') {
+      const hasContent = msg.content ||
+        (msg.parts && msg.parts.some(p => p.type === 'text' && p.text));
+      const hasTools = msg.parts && msg.parts.some(p =>
+        p.type === 'tool-invocation' || p.type === 'tool-call' || p.type === 'tool-result'
+      );
+      return hasContent || hasTools;
+    }
+    return true;
+  });
+}
 
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
@@ -32,7 +110,7 @@ export async function POST(request) {
     // 1. PARSE REQUEST
     // ─────────────────────────────────────────────────────────────────────────
     const body = await request.json();
-    const { messages, agentId, chatId: existingChatId } = body;
+    const { messages, agentId, chatId: existingChatId, enabledSourceIds } = body;
 
     if (!agentId) {
       return jsonError('agentId is required', 400);
@@ -84,12 +162,13 @@ export async function POST(request) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 6. LOAD TOOLS
+    // 6. LOAD TOOLS (optionally filtered by enabled sources)
     // ─────────────────────────────────────────────────────────────────────────
     const { tools, toolRows, sourceIds, sourcesWithHints } = await loadAgentTools(
       supabase,
       agentId,
-      user.id
+      user.id,
+      { enabledSourceIds }
     );
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -108,8 +187,11 @@ export async function POST(request) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 8. STREAM RESPONSE
+    // 8. CLEAN MESSAGES & STREAM RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
+    // Clean messages to remove any incomplete tool calls (from cancelled requests)
+    const cleanedMessages = cleanMessages(messages);
+
     const systemPrompt = buildSystemPrompt(agent, toolRows, sourcesWithHints, tools);
 
     console.log('[CHAT]', agent.model_provider, agent.model_name, '|', Object.keys(tools).length, 'tools');
@@ -118,9 +200,12 @@ export async function POST(request) {
       model,
       modelId: agent.model_name,
       system: systemPrompt,
-      messages,
+      messages: cleanedMessages,
       tools,
       temperature: agent.temperature ?? 0.1,
+      // Pass request signal for cancellation support
+      // When client disconnects or aborts, this signal fires and stops the LLM call
+      abortSignal: request.signal,
       // Langfuse tracing metadata (if LANGFUSE_* env vars are set)
       telemetryMetadata: {
         agentId,
@@ -145,7 +230,7 @@ export async function POST(request) {
           orgId,
           agentId,
           userId: user.id,
-          messages,
+          messages: cleanedMessages,
           text: event.text,
           steps: event.steps,
           usage: event.usage,
@@ -163,6 +248,23 @@ export async function POST(request) {
     });
 
   } catch (error) {
+    // Handle user-initiated cancellation gracefully
+    if (isAbortError(error)) {
+      console.log('[CHAT] Request cancelled by client');
+      // Return empty response - client already moved on
+      return new Response(null, { status: 499 }); // 499 = Client Closed Request
+    }
+
+    // Handle missing tool results - happens when user cancels mid-tool-call
+    // or sends a new message while a tool is pending approval
+    if (error.name === 'AI_MissingToolResultsError') {
+      console.log('[CHAT] Missing tool results - likely cancelled or incomplete tool call');
+      return jsonError(
+        'Previous action was cancelled or incomplete. Please try your request again.',
+        400
+      );
+    }
+
     console.error('[CHAT] Error:', error);
 
     if (error instanceof AuthError) {

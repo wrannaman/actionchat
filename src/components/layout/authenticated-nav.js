@@ -9,9 +9,7 @@ export function AuthenticatedNav() {
 
   const navLinks = [
     { href: "/chat", label: "Chat" },
-    { href: "/sources", label: "Sources" },
-    { href: "/agents", label: "Agents" },
-    { href: "/activity", label: "Activity" },
+    { href: "/routines", label: "Routines" },
     { href: "/settings", label: "Settings" },
   ];
 

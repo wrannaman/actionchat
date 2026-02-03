@@ -190,6 +190,7 @@ function HomeContent() {
           </Link>
           <nav className="hidden md:flex items-center gap-6 text-sm text-white/60">
             <Link href="/explore" className="hover:text-white transition-colors">Explore</Link>
+            <Link href="/compare" className="hover:text-white transition-colors">Compare</Link>
             <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white transition-colors flex items-center gap-1">
               <GitBranch className="w-4 h-4" />
               GitHub
@@ -413,8 +414,11 @@ function HomeContent() {
             <TargetIcon className="w-5 h-5" />
             <span>&copy; {new Date().getFullYear()} ActionChat. MIT License.</span>
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap justify-center md:justify-end gap-x-6 gap-y-2">
             <Link href="/explore" className="hover:text-white/50 transition-colors">Explore</Link>
+            <Link href="/compare/zapier" className="hover:text-white/50 transition-colors">vs Zapier</Link>
+            <Link href="/compare/lindy" className="hover:text-white/50 transition-colors">vs Lindy</Link>
+            <Link href="/compare/clawdbot" className="hover:text-white/50 transition-colors">vs Clawdbot</Link>
             <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white/50 transition-colors">GitHub</Link>
             <Link href="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
             <Link href="/tos" className="hover:text-white/50 transition-colors">Terms</Link>

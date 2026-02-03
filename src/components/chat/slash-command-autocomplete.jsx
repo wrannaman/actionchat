@@ -18,6 +18,8 @@ export function SlashCommandAutocomplete({
   selectedIndex,
   onSelect,
   onHover,
+  toolCount = 0,
+  showingRoutinesOnly = false,
 }) {
   if (!suggestions || suggestions.length === 0) return null;
 
@@ -93,8 +95,15 @@ export function SlashCommandAutocomplete({
               </div>
             )}
 
-            {/* Routine prompt preview */}
-            {isRoutine && item.prompt && (
+            {/* Routine parameters */}
+            {isRoutine && item.parameters && Object.keys(item.parameters).length > 0 && (
+              <div className="text-cyan-400/60 text-[10px] font-mono mt-1 ml-9">
+                needs: {Object.keys(item.parameters).join(", ")}
+              </div>
+            )}
+
+            {/* Routine prompt preview (only if no parameters shown) */}
+            {isRoutine && item.prompt && (!item.parameters || Object.keys(item.parameters).length === 0) && (
               <div className="text-cyan-400/40 text-[10px] font-mono mt-1 ml-9 truncate">
                 → {item.prompt.slice(0, 60)}{item.prompt.length > 60 ? "..." : ""}
               </div>
@@ -105,9 +114,11 @@ export function SlashCommandAutocomplete({
 
       {/* Footer hint */}
       <div className="px-3 py-1.5 bg-white/5 border-t border-white/5 text-[10px] text-white/30 flex items-center gap-4">
-        <span><kbd className="px-1 py-0.5 rounded bg-white/10">Tab</kbd> to select</span>
-        <span><kbd className="px-1 py-0.5 rounded bg-white/10"></kbd><kbd className="px-1 py-0.5 rounded bg-white/10 ml-0.5"></kbd> to navigate</span>
-        <span><kbd className="px-1 py-0.5 rounded bg-white/10">Esc</kbd> to close</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-white/10">Tab</kbd> select</span>
+        <span><kbd className="px-1 py-0.5 rounded bg-white/10">↑↓</kbd> navigate</span>
+        {showingRoutinesOnly && toolCount > 0 && (
+          <span className="ml-auto text-white/20">Type to search {toolCount} endpoints</span>
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ export async function GET(request, { params }) {
 
     const { data: routine, error } = await supabase
       .from('routines')
-      .select('id, name, prompt, description, is_shared, use_count, last_used_at, created_by, created_at')
+      .select('id, name, prompt, description, parameters, is_shared, use_count, last_used_at, source_chat_id, created_by, created_at')
       .eq('id', id)
       .single();
 
@@ -38,7 +38,7 @@ export async function GET(request, { params }) {
 /**
  * PATCH /api/routines/[id] - Update a routine
  *
- * Body: { name?, prompt?, description?, is_shared? }
+ * Body: { name?, prompt?, description?, parameters?, is_shared? }
  */
 export async function PATCH(request, { params }) {
   try {
@@ -52,9 +52,39 @@ export async function PATCH(request, { params }) {
     const body = await request.json();
     const updates = {};
 
-    if (body.name !== undefined) updates.name = body.name.trim();
+    // Normalize name if provided
+    if (body.name !== undefined) {
+      const normalizedName = body.name.trim().toLowerCase().replace(/\s+/g, '-');
+      updates.name = normalizedName;
+
+      // Check for duplicate name (excluding current routine)
+      const { data: currentRoutine } = await supabase
+        .from('routines')
+        .select('org_id')
+        .eq('id', id)
+        .single();
+
+      if (currentRoutine) {
+        const { data: existing } = await supabase
+          .from('routines')
+          .select('id')
+          .eq('org_id', currentRoutine.org_id)
+          .eq('name', normalizedName)
+          .neq('id', id)
+          .maybeSingle();
+
+        if (existing) {
+          return NextResponse.json(
+            { error: `A routine named "/${normalizedName}" already exists` },
+            { status: 409 }
+          );
+        }
+      }
+    }
+
     if (body.prompt !== undefined) updates.prompt = body.prompt.trim();
     if (body.description !== undefined) updates.description = body.description?.trim() || null;
+    if (body.parameters !== undefined) updates.parameters = body.parameters;
     if (body.is_shared !== undefined) updates.is_shared = body.is_shared;
 
     if (Object.keys(updates).length === 0) {
@@ -66,7 +96,7 @@ export async function PATCH(request, { params }) {
       .update(updates)
       .eq('id', id)
       .eq('created_by', user.id) // only owner can update
-      .select('id, name, prompt, description, is_shared')
+      .select('id, name, prompt, description, parameters, is_shared')
       .single();
 
     if (error) throw error;
@@ -118,7 +148,7 @@ export async function DELETE(request, { params }) {
  * POST /api/routines/[id]/use - Track routine usage
  *
  * Call this when user selects a routine to track popularity.
- * Returns the routine prompt for convenience.
+ * Returns the routine prompt and parameters for convenience.
  */
 export async function POST(request, { params }) {
   try {
@@ -132,7 +162,7 @@ export async function POST(request, { params }) {
     // First get the routine (RLS handles access)
     const { data: routine, error: fetchError } = await supabase
       .from('routines')
-      .select('id, name, prompt, use_count, created_by')
+      .select('id, name, prompt, parameters, use_count, created_by')
       .eq('id', id)
       .single();
 
@@ -157,6 +187,7 @@ export async function POST(request, { params }) {
         id: routine.id,
         name: routine.name,
         prompt: routine.prompt,
+        parameters: routine.parameters || {},
       },
     });
   } catch (error) {

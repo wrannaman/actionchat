@@ -211,6 +211,8 @@ export async function chat({
   maxSteps = 15, // Agentic: allow multiple rounds of tool calls for best answer
   onStepFinish,
   onFinish,
+  // Abort signal for cancellation (pass request.signal from API route)
+  abortSignal,
   // Langfuse tracing metadata (optional)
   telemetryMetadata = {},
 }) {
@@ -238,6 +240,8 @@ export async function chat({
     // stopWhen controls when to stop the agent loop
     // stepCountIs(n) stops when step count reaches n
     stopWhen: hasTools ? stepCountIs(maxSteps) : stepCountIs(1),
+    // Abort signal for cancellation - when client disconnects or user cancels
+    abortSignal,
     onStepFinish: (step) => {
       console.log('[AI STEP]', step.stepNumber || 'unknown', 'finishReason:', step.finishReason);
       console.log('[AI STEP] toolCalls:', step.toolCalls?.length || 0);
@@ -265,13 +269,19 @@ export async function chat({
  */
 export function toStreamResponse(result, { headers = {} } = {}) {
   // toUIMessageStreamResponse is the correct method for useChat
-  const response = result.toUIMessageStreamResponse();
+  const originalResponse = result.toUIMessageStreamResponse();
 
+  // Response headers can be immutable, so create a new Response with merged headers
+  const mergedHeaders = new Headers(originalResponse.headers);
   for (const [key, value] of Object.entries(headers)) {
-    response.headers.set(key, value);
+    mergedHeaders.set(key, value);
   }
 
-  return response;
+  return new Response(originalResponse.body, {
+    status: originalResponse.status,
+    statusText: originalResponse.statusText,
+    headers: mergedHeaders,
+  });
 }
 
 // ============================================================================
@@ -296,6 +306,20 @@ export function isProviderConfigured(provider, orgSettings) {
   if (!config) return false;
   if (config.requiresKey === false) return true;
   return !!orgSettings[config.keyField];
+}
+
+/**
+ * Check if an error is an AbortError (user-initiated cancellation).
+ * Use this to distinguish user cancellations from real errors.
+ */
+export function isAbortError(error) {
+  if (!error) return false;
+  return (
+    error.name === 'AbortError' ||
+    error.message?.includes('aborted') ||
+    error.message?.includes('abort') ||
+    error.code === 'ABORT_ERR'
+  );
 }
 
 /** Model options per provider */
