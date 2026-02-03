@@ -14,6 +14,9 @@ export function Footer() {
           </Link>
 
           <div className="flex items-center gap-6 text-sm text-white/30">
+            <Link href="/blog/sop-automation" className="hover:text-white transition-colors">
+              SOP Automation
+            </Link>
             <Link href="/privacy" className="hover:text-white transition-colors">
               Privacy
             </Link>

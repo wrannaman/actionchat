@@ -419,6 +419,7 @@ function HomeContent() {
             <Link href="/compare/zapier" className="hover:text-white/50 transition-colors">vs Zapier</Link>
             <Link href="/compare/lindy" className="hover:text-white/50 transition-colors">vs Lindy</Link>
             <Link href="/compare/clawdbot" className="hover:text-white/50 transition-colors">vs Clawdbot</Link>
+            <Link href="/blog/sop-automation" className="hover:text-white/50 transition-colors">SOP Automation</Link>
             <Link href="https://github.com/wrannaman/actionchat" target="_blank" className="hover:text-white/50 transition-colors">GitHub</Link>
             <Link href="/privacy" className="hover:text-white/50 transition-colors">Privacy</Link>
             <Link href="/tos" className="hover:text-white/50 transition-colors">Terms</Link>
