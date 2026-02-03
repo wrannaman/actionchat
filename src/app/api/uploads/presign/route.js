@@ -84,10 +84,15 @@ export async function POST(request) {
     const isImage = contentType.startsWith('image/')
     const isVideo = contentType.startsWith('video/')
     const isAudio = contentType.startsWith('audio/')
-    const isText = contentType === 'text/plain' || contentType === 'text/markdown' || contentType === 'text/x-markdown'
-    
-    if (!isImage && !isPDF && !isVideo && !isAudio && !isText) {
-      return NextResponse.json({ error: 'Content type must be an image, PDF, video, audio, or text file' }, { status: 400 })
+    const isText = contentType === 'text/plain' || contentType === 'text/markdown' || contentType === 'text/x-markdown' || contentType === 'text/csv'
+    const isData = contentType === 'application/json' || contentType === 'text/csv'
+    const isOffice = contentType === 'application/msword' ||
+      contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      contentType === 'application/vnd.ms-excel' ||
+      contentType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+    if (!isImage && !isPDF && !isVideo && !isAudio && !isText && !isData && !isOffice) {
+      return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 })
     }
 
     // Generate unique filename
@@ -105,6 +110,8 @@ export async function POST(request) {
     else if (isVideo) folder = 'videos'
     else if (isAudio) folder = 'audio'
     else if (isText) folder = 'text'
+    else if (isData) folder = 'data'
+    else if (isOffice) folder = 'docs'
     
     const s3Key = `actionchat/${pathPrefix}/${folder}/${timestamp}-${randomString}.${fileExtension}`
 
@@ -115,12 +122,14 @@ export async function POST(request) {
     const signedViewUrl = await generatePresignedGetUrl(s3Key)
 
     // Determine asset type for frontend
-    let assetType = 'url'
+    let assetType = 'file'
     if (isImage) assetType = 'image'
     else if (isVideo) assetType = 'video'
     else if (isAudio) assetType = 'audio'
     else if (isPDF) assetType = 'pdf'
-    else if (isText) assetType = 'text-file'
+    else if (isText) assetType = 'text'
+    else if (isData) assetType = 'data'
+    else if (isOffice) assetType = 'document'
 
     return NextResponse.json({
       presignedUrl,

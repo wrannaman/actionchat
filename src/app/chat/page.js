@@ -694,6 +694,9 @@ function ChatInterface({
   const [input, setInput] = useState("");
   const [executing, setExecuting] = useState(false);
   const [attachments, setAttachments] = useState([]); // { id, file, preview, type, uploading?, uploaded?, key?, url? }
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropUploading, setDropUploading] = useState(false);
+  const dragCounterRef = useRef(0);
   const { upload: uploadFile, uploading: fileUploading } = useFileUpload();
 
   // Save as Routine dialog
@@ -812,7 +815,7 @@ function ChatInterface({
   const isStreaming = status === 'streaming';
   const isSubmitting = status === 'submitted';
   const anyUploading = attachments.some((a) => a.uploading);
-  const isLoading = isStreaming || isSubmitting || executing || anyUploading;
+  const isLoading = isStreaming || isSubmitting || executing || anyUploading || dropUploading;
   // Can stop when streaming OR when waiting for first chunk (submitted)
   // This allows cancelling slow initial responses
   const canStop = isStreaming || isSubmitting;
@@ -952,6 +955,75 @@ function ChatInterface({
       }
       return prev.filter((a) => a.id !== id);
     });
+  };
+
+  // Drag and drop handlers - drop anywhere in chat to insert markdown URL
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer?.items?.length > 0) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length === 0) return;
+
+    setDropUploading(true);
+
+    try {
+      const markdownLinks = [];
+
+      for (const file of files) {
+        try {
+          const result = await uploadFile(file);
+          const isImage = file.type.startsWith("image/");
+
+          // Generate markdown link
+          if (isImage) {
+            markdownLinks.push(`![${file.name}](${result.url})`);
+          } else {
+            markdownLinks.push(`[${file.name}](${result.url})`);
+          }
+        } catch (err) {
+          console.error("Drop upload failed:", err);
+          toast.error(`Failed to upload ${file.name}`);
+        }
+      }
+
+      // Insert markdown into input
+      if (markdownLinks.length > 0) {
+        setInput((prev) => {
+          const prefix = prev.trim() ? prev + "\n" : "";
+          return prefix + markdownLinks.join("\n");
+        });
+        toast.success(`${markdownLinks.length} file${markdownLinks.length > 1 ? "s" : ""} uploaded`);
+        inputRef.current?.focus();
+      }
+    } finally {
+      setDropUploading(false);
+    }
   };
 
   // Handle selecting a tool or routine from autocomplete
@@ -1176,7 +1248,33 @@ function ChatInterface({
   }, [messages]);
 
   return (
-    <>
+    <div
+      className="flex-1 flex flex-col overflow-hidden relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drop zone overlay */}
+      {(isDragging || dropUploading) && (
+        <div className="absolute inset-0 z-50 bg-[#0a0a0f]/90 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="border-2 border-dashed border-cyan-500 rounded-2xl p-12 text-center">
+            {dropUploading ? (
+              <>
+                <Loader2 className="w-12 h-12 text-cyan-400 animate-spin mx-auto mb-4" />
+                <p className="text-xl text-white font-medium">Uploading...</p>
+              </>
+            ) : (
+              <>
+                <Upload className="w-12 h-12 text-cyan-400 mx-auto mb-4" />
+                <p className="text-xl text-white font-medium">Drop files to upload</p>
+                <p className="text-white/50 mt-2">Files will be uploaded and inserted as markdown links</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="max-w-5xl mx-auto space-y-6">
@@ -1440,7 +1538,7 @@ function ChatInterface({
         chatId={currentChatId}
         onSaved={() => refetchRoutines()}
       />
-    </>
+    </div>
   );
 }
 
