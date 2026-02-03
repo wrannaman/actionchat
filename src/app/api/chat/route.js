@@ -162,14 +162,21 @@ export async function POST(request) {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // 6. LOAD TOOLS (optionally filtered by enabled sources)
+    // 6. LOAD TOOLS (optionally filtered by enabled sources, with semantic search)
     // ─────────────────────────────────────────────────────────────────────────
-    const { tools, toolRows, sourceIds, sourcesWithHints } = await loadAgentTools(
+    // Extract last user message for semantic tool search
+    const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+
+    const { tools, toolRows, sourceIds, sourcesWithHints, toolsWarning } = await loadAgentTools(
       supabase,
       agentId,
       user.id,
-      { enabledSourceIds }
+      { enabledSourceIds, userQuery: lastUserMessage }
     );
+
+    if (toolsWarning) {
+      console.warn('[CHAT]', toolsWarning);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // 7. CREATE OR REUSE CHAT
@@ -242,9 +249,14 @@ export async function POST(request) {
     // ─────────────────────────────────────────────────────────────────────────
     // 9. RETURN STREAMING RESPONSE
     // ─────────────────────────────────────────────────────────────────────────
+    const responseHeaders = { 'X-Chat-Id': chatId || '' };
+    if (toolsWarning) {
+      responseHeaders['X-Tools-Warning'] = toolsWarning;
+    }
+
     return toStreamResponse(result, {
       messages,
-      headers: { 'X-Chat-Id': chatId || '' },
+      headers: responseHeaders,
     });
 
   } catch (error) {

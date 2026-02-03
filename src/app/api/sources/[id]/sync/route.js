@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
-import { parseOpenApiSpec } from '@/lib/tools';
+import { parseOpenApiSpec, embedTool } from '@/lib/tools';
 import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
 import { cookies } from 'next/headers';
 import { getPermissions, requireAdmin } from '@/utils/permissions';
@@ -117,16 +117,20 @@ async function syncMcpSource(supabase, source, userId) {
     let insertedCount = 0;
     let updatedCount = 0;
     let removedCount = 0;
+    let embeddedCount = 0;
+    const toolsToEmbed = [];
 
     if (toInsert.length > 0) {
-      const { data } = await supabase.from('tools').insert(toInsert).select('id');
+      const { data } = await supabase.from('tools').insert(toInsert).select('id, name, description, method, path');
       insertedCount = data?.length || 0;
+      toolsToEmbed.push(...(data || []));
     }
 
     for (const tool of toUpdate) {
       const { id: toolId, ...updates } = tool;
       await supabase.from('tools').update(updates).eq('id', toolId);
       updatedCount++;
+      toolsToEmbed.push({ id: toolId, ...updates });
     }
 
     if (removedOpIds.length > 0) {
@@ -139,6 +143,22 @@ async function syncMcpSource(supabase, source, userId) {
       }
       removedCount = removedOpIds.length;
     }
+
+    // Generate embeddings for new/updated tools
+    console.log('[MCP SYNC] Generating embeddings for', toolsToEmbed.length, 'tools...');
+    for (const tool of toolsToEmbed) {
+      try {
+        const embedding = await embedTool(tool);
+        await supabase
+          .from('tools')
+          .update({ embedding })
+          .eq('id', tool.id);
+        embeddedCount++;
+      } catch (e) {
+        console.warn('[MCP SYNC] Failed to embed tool:', tool.name, e.message);
+      }
+    }
+    console.log('[MCP SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
 
     // Update source last_synced_at
     await supabase
@@ -155,6 +175,7 @@ async function syncMcpSource(supabase, source, userId) {
       inserted: insertedCount,
       updated: updatedCount,
       removed: removedCount,
+      embedded: embeddedCount,
       tool_count: insertedCount + updatedCount,
     });
   } catch (error) {
@@ -201,7 +222,39 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    // Handle MCP sources
+    // ─────────────────────────────────────────────────────────────────────────
+    // TEMPLATE-BASED SOURCES: Use global template_tools instead of per-org tools
+    // ─────────────────────────────────────────────────────────────────────────
+    if (source.template_id) {
+      // Check if template has tools synced
+      const { count: templateToolCount } = await supabase
+        .from('template_tools')
+        .select('id', { count: 'exact', head: true })
+        .eq('template_id', source.template_id)
+        .eq('is_active', true);
+
+      if (templateToolCount > 0) {
+        // Template tools exist - no sync needed for this source
+        console.log('[SYNC] Source uses template with', templateToolCount, 'pre-synced tools');
+        return NextResponse.json({
+          ok: true,
+          message: `This source uses a global template with ${templateToolCount} pre-synced tools. No sync needed.`,
+          changed: false,
+          tool_count: templateToolCount,
+          uses_template: true,
+        });
+      }
+
+      // Template has no tools - inform user to sync the template
+      return NextResponse.json({
+        ok: false,
+        error: 'Template tools not synced',
+        message: 'This source uses a template that has not been synced yet. Please sync the template first via POST /api/admin/templates/{template_id}/sync',
+        template_id: source.template_id,
+      }, { status: 400 });
+    }
+
+    // Handle MCP sources (custom, non-template)
     if (source.source_type === 'mcp') {
       return syncMcpSource(supabase, source, user.id);
     }
@@ -343,16 +396,20 @@ export async function POST(request, { params }) {
     let insertedCount = 0;
     let updatedCount = 0;
     let removedCount = 0;
+    let embeddedCount = 0;
+    const toolsToEmbed = [];
 
     if (toInsert.length > 0) {
-      const { data } = await supabase.from('tools').insert(toInsert).select('id');
+      const { data } = await supabase.from('tools').insert(toInsert).select('id, name, description, method, path');
       insertedCount = data?.length || 0;
+      toolsToEmbed.push(...(data || []));
     }
 
     for (const tool of toUpdate) {
       const { id: toolId, ...updates } = tool;
       await supabase.from('tools').update(updates).eq('id', toolId);
       updatedCount++;
+      toolsToEmbed.push({ id: toolId, ...updates });
     }
 
     if (removedOpIds.length > 0) {
@@ -366,12 +423,29 @@ export async function POST(request, { params }) {
       removedCount = removedOpIds.length;
     }
 
+    // Generate embeddings for new/updated tools
+    console.log('[SYNC] Generating embeddings for', toolsToEmbed.length, 'tools...');
+    for (const tool of toolsToEmbed) {
+      try {
+        const embedding = await embedTool(tool);
+        await supabase
+          .from('tools')
+          .update({ embedding })
+          .eq('id', tool.id);
+        embeddedCount++;
+      } catch (e) {
+        console.warn('[SYNC] Failed to embed tool:', tool.name, e.message);
+      }
+    }
+    console.log('[SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
+
     return NextResponse.json({
       ok: true,
       changed: true,
       inserted: insertedCount,
       updated: updatedCount,
       removed: removedCount,
+      embedded: embeddedCount,
       tool_count: insertedCount + updatedCount,
     });
   } catch (error) {

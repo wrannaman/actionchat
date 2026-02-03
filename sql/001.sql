@@ -8,6 +8,7 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 
 CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
@@ -115,6 +116,39 @@ CREATE INDEX idx_templates_featured ON source_templates(is_featured) WHERE is_fe
 COMMENT ON TABLE source_templates IS 'Pre-configured integration templates for one-click setup.';
 
 -- ============================================================================
+-- 4b. TEMPLATE_TOOLS — global tools for templates (shared across all orgs)
+-- ============================================================================
+
+CREATE TABLE template_tools (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  template_id UUID NOT NULL REFERENCES source_templates(id) ON DELETE CASCADE,
+  operation_id TEXT,                      -- OpenAPI operationId (stable key for re-sync)
+  name TEXT NOT NULL,                     -- human-readable, e.g. "Refund Payment"
+  description TEXT,
+  method TEXT NOT NULL CHECK (method IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'MCP')),
+  path TEXT NOT NULL,                     -- e.g. "/v1/refunds" (for MCP: tool name)
+  parameters JSONB NOT NULL DEFAULT '{}', -- JSON Schema for query/path params
+  request_body JSONB,                     -- JSON Schema for request body
+  -- MCP-specific fields
+  mcp_tool_name TEXT,                     -- MCP tool identifier
+  -- Risk and confirmation
+  risk_level TEXT NOT NULL DEFAULT 'safe'
+    CHECK (risk_level IN ('safe', 'moderate', 'dangerous')),
+  requires_confirmation BOOLEAN NOT NULL DEFAULT false,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  -- Semantic search embedding (1536 dimensions for text-embedding-3-small)
+  embedding extensions.vector(1536),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TRIGGER trg_template_tools BEFORE UPDATE ON template_tools FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE INDEX idx_template_tools_template ON template_tools(template_id) WHERE is_active;
+CREATE UNIQUE INDEX idx_template_tools_operation ON template_tools(template_id, operation_id) WHERE operation_id IS NOT NULL;
+CREATE INDEX idx_template_tools_embedding ON template_tools USING hnsw (embedding extensions.vector_cosine_ops);
+COMMENT ON TABLE template_tools IS 'Global tools for templates (Stripe, Twilio, etc). Shared across all orgs. Embeddings generated once globally.';
+
+-- ============================================================================
 -- 5. API_SOURCES — "Scopes": OpenAPI specs, MCP servers, or manual endpoint collections
 -- ============================================================================
 
@@ -189,6 +223,8 @@ CREATE TABLE tools (
   requires_confirmation BOOLEAN NOT NULL DEFAULT false,
   tags TEXT[] NOT NULL DEFAULT '{}',
   is_active BOOLEAN NOT NULL DEFAULT true,
+  -- Semantic search embedding (1536 dimensions for text-embedding-3-small)
+  embedding extensions.vector(1536),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -196,7 +232,8 @@ CREATE TRIGGER trg_tools BEFORE UPDATE ON tools FOR EACH ROW EXECUTE FUNCTION se
 CREATE INDEX idx_tools_source ON tools(source_id) WHERE is_active;
 CREATE UNIQUE INDEX idx_tools_operation ON tools(source_id, operation_id) WHERE operation_id IS NOT NULL;
 CREATE INDEX idx_tools_tags ON tools USING GIN (tags);
-COMMENT ON TABLE tools IS 'Single API endpoint. Parsed from OpenAPI spec or manually defined. operation_id is the stable sync key.';
+CREATE INDEX idx_tools_embedding ON tools USING hnsw (embedding extensions.vector_cosine_ops);
+COMMENT ON TABLE tools IS 'Per-org custom tools (non-template sources). For template sources (Stripe, etc), use template_tools instead.';
 
 -- ============================================================================
 -- 8. AGENTS — configured bot instances
@@ -362,6 +399,7 @@ ALTER TABLE org                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_members          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE org_invites          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE source_templates     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE template_tools       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_sources          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_api_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tools                ENABLE ROW LEVEL SECURITY;
@@ -473,6 +511,10 @@ CREATE POLICY invites_public ON org_invites FOR SELECT USING (is_active = true);
 -- source_templates: public read (catalog), admin-only write (seeding)
 CREATE POLICY templates_read ON source_templates FOR SELECT USING (true);
 CREATE POLICY templates_write ON source_templates FOR ALL USING (false); -- seeded via migrations only
+
+-- template_tools: global read (authenticated), write via service role only
+CREATE POLICY template_tools_read ON template_tools FOR SELECT USING (true);
+CREATE POLICY template_tools_write ON template_tools FOR ALL USING (false); -- synced via admin/service role
 
 -- api_sources: members read, admin writes
 CREATE POLICY sources_read ON api_sources FOR SELECT USING (
@@ -619,6 +661,55 @@ BEGIN
   WHERE om.user_id = auth.uid() AND a.is_active;
 END; $$;
 
+-- Semantic search for custom tools (per-org) by embedding similarity
+CREATE OR REPLACE FUNCTION search_tools_semantic(
+  p_source_ids UUID[],
+  p_embedding extensions.vector(1536),
+  p_limit INT DEFAULT 64
+)
+RETURNS TABLE (tool_id UUID, similarity FLOAT)
+LANGUAGE sql STABLE AS $$
+  SELECT t.id, 1 - (t.embedding <=> p_embedding) AS similarity
+  FROM tools t
+  WHERE t.source_id = ANY(p_source_ids)
+    AND t.is_active = true
+    AND t.embedding IS NOT NULL
+  ORDER BY t.embedding <=> p_embedding
+  LIMIT p_limit;
+$$;
+
+-- Semantic search for template tools (global) by embedding similarity
+CREATE OR REPLACE FUNCTION search_template_tools_semantic(
+  p_template_ids UUID[],
+  p_embedding extensions.vector(1536),
+  p_limit INT DEFAULT 64
+)
+RETURNS TABLE (tool_id UUID, similarity FLOAT)
+LANGUAGE sql STABLE AS $$
+  SELECT t.id, 1 - (t.embedding <=> p_embedding) AS similarity
+  FROM template_tools t
+  WHERE t.template_id = ANY(p_template_ids)
+    AND t.is_active = true
+    AND t.embedding IS NOT NULL
+  ORDER BY t.embedding <=> p_embedding
+  LIMIT p_limit;
+$$;
+
+-- Get all tools for a template (for loading template-based sources)
+CREATE OR REPLACE FUNCTION get_template_tools(template_uuid UUID)
+RETURNS TABLE(
+  tool_id UUID, tool_name TEXT, description TEXT,
+  method TEXT, path TEXT, parameters JSONB, request_body JSONB,
+  risk_level TEXT, requires_confirmation BOOLEAN, mcp_tool_name TEXT
+)
+LANGUAGE sql STABLE AS $$
+  SELECT t.id, t.name, t.description,
+         t.method, t.path, t.parameters, t.request_body,
+         t.risk_level, t.requires_confirmation, t.mcp_tool_name
+  FROM template_tools t
+  WHERE t.template_id = template_uuid AND t.is_active;
+$$;
+
 -- ============================================================================
 -- GRANTS
 -- ============================================================================
@@ -633,10 +724,13 @@ GRANT EXECUTE ON FUNCTION get_my_org_id()                    TO authenticated;
 GRANT EXECUTE ON FUNCTION check_domain_auto_join(TEXT)       TO authenticated;
 GRANT EXECUTE ON FUNCTION get_agent_tools(UUID)              TO authenticated;
 GRANT EXECUTE ON FUNCTION get_user_accessible_agents()       TO authenticated;
+GRANT EXECUTE ON FUNCTION search_tools_semantic(UUID[], extensions.vector, INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION search_template_tools_semantic(UUID[], extensions.vector, INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_template_tools(UUID)           TO authenticated;
 
 GRANT ALL ON org, org_members, org_invites                   TO authenticated;
-GRANT SELECT ON source_templates                             TO authenticated;
-GRANT SELECT ON source_templates                             TO anon;
+GRANT SELECT ON source_templates, template_tools             TO authenticated;
+GRANT SELECT ON source_templates, template_tools             TO anon;
 GRANT ALL ON api_sources, user_api_credentials, tools        TO authenticated;
 GRANT ALL ON agents, agent_sources, member_agent_access      TO authenticated;
 GRANT ALL ON routines, chats, messages                       TO authenticated;

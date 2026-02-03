@@ -3,7 +3,7 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronRight, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, Wrench, FileText, File as FileIcon } from "lucide-react";
 import { ToolCallDisplay, GroupedToolCallDisplay } from "./tool-call-display";
 import { ConfirmationPrompt } from "./confirmation-prompt";
 
@@ -22,11 +22,11 @@ function normalizeParts(message) {
 }
 
 export function ChatMessage({ message, onApprove, onReject }) {
-  const { role } = message;
+  const { role, experimental_attachments } = message;
   const parts = normalizeParts(message);
 
   if (role === "user") {
-    return <UserMessage parts={parts} />;
+    return <UserMessage parts={parts} attachments={experimental_attachments} />;
   }
 
   if (role === "assistant") {
@@ -50,16 +50,14 @@ export function ChatMessage({ message, onApprove, onReject }) {
   );
 }
 
-function UserMessage({ parts }) {
+function UserMessage({ parts, attachments }) {
   const text = parts
     ?.filter((p) => p.type === "text")
     .map((p) => p.text)
     .join("");
 
-  if (!text) return null;
-
   // Check if this is a routine execution - show it nicely instead of raw prompt
-  const routineMatch = text.match(/^Run the "([^"]+)" routine:\n\n([\s\S]*?)(?:\n\nAdditional context: ([\s\S]*))?$/);
+  const routineMatch = text?.match(/^Run the "([^"]+)" routine:\n\n([\s\S]*?)(?:\n\nAdditional context: ([\s\S]*))?$/);
   if (routineMatch) {
     const [, routineName, , context] = routineMatch;
     return (
@@ -75,7 +73,55 @@ function UserMessage({ parts }) {
     );
   }
 
-  return <p className="whitespace-pre-wrap">{text}</p>;
+  return (
+    <div className="space-y-2">
+      {/* Attachments */}
+      {attachments?.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {attachments.map((att, i) => {
+            const isImage = att.contentType?.startsWith("image/");
+            const isPdf = att.contentType === "application/pdf";
+
+            if (isImage && att.url) {
+              return (
+                <div key={i} className="relative">
+                  <img
+                    src={att.url}
+                    alt={att.name || "Attached image"}
+                    className="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-black/20"
+                  />
+                  {att.name && (
+                    <div className="text-xs text-black/60 mt-1 truncate max-w-[200px]">
+                      {att.name}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={i}
+                className="flex items-center gap-2 px-3 py-2 bg-black/10 rounded-lg text-sm"
+              >
+                {isPdf ? (
+                  <FileText className="w-4 h-4 text-black/60" />
+                ) : (
+                  <FileIcon className="w-4 h-4 text-black/60" />
+                )}
+                <span className="text-black/80 max-w-[150px] truncate">
+                  {att.name || "Attachment"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Text content */}
+      {text && <p className="whitespace-pre-wrap">{text}</p>}
+    </div>
+  );
 }
 
 function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {

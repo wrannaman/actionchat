@@ -30,3 +30,13 @@ export {
 export {
   convertToolsToAISDK,
 } from './converter.js';
+
+// Embeddings - Semantic search for tools
+export {
+  embedTool,
+  embedQuery,
+  searchTools,
+  getEmbeddingCoverage,
+  searchTemplateTools,
+  getTemplateEmbeddingCoverage,
+} from './embeddings.js';

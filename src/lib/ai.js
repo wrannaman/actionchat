@@ -96,6 +96,10 @@ const PROVIDERS = {
     baseUrlField: 'openai_base_url',
     defaultModel: 'gpt-5',
     capabilities: { tools: true, vision: true, streaming: true },
+    // Use Chat Completions API instead of Responses API
+    // Responses API has previousResponseId continuation that can expire and cause
+    // "Item with id 'rs_xxx' not found" errors on subsequent requests
+    useChat: true,
   },
 
   anthropic: {
@@ -166,6 +170,12 @@ export function getModel({ provider, model, orgSettings = {} }) {
   // Create provider and model
   const providerInstance = config.create(options);
   const modelId = config.normalizeModelId ? config.normalizeModelId(model) : model;
+
+  // For OpenAI, use .chat() to use Chat Completions API instead of Responses API
+  // This avoids "Item with id 'rs_xxx' not found" errors from expired response IDs
+  if (config.useChat) {
+    return providerInstance.chat(modelId);
+  }
 
   return providerInstance(modelId);
 }

@@ -28,11 +28,16 @@ import {
   PanelLeft,
   Sparkles,
   Square,
+  Paperclip,
+  FileText,
+  Image as ImageIcon,
+  File as FileIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { cachedFetch, clearFetchCache } from "@/lib/fetch-cache";
 import { ChatMessage } from "@/components/chat/chat-message";
+import { useFileUpload } from "@/hooks/use-file-upload";
 import { AuthenticatedNav } from "@/components/layout/authenticated-nav";
 import { CredentialModal } from "@/components/chat/credential-modal";
 import { ApiDetailModal } from "@/components/chat/api-detail-modal";
@@ -685,8 +690,11 @@ function ChatInterface({
   const messagesEndRef = useRef(null);
   const chatIdRef = useRef(currentChatId);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [input, setInput] = useState("");
   const [executing, setExecuting] = useState(false);
+  const [attachments, setAttachments] = useState([]); // { id, file, preview, type, uploading?, uploaded?, key?, url? }
+  const { upload: uploadFile, uploading: fileUploading } = useFileUpload();
 
   // Save as Routine dialog
   const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
@@ -803,7 +811,8 @@ function ChatInterface({
   // Track different loading states for UI
   const isStreaming = status === 'streaming';
   const isSubmitting = status === 'submitted';
-  const isLoading = isStreaming || isSubmitting || executing;
+  const anyUploading = attachments.some((a) => a.uploading);
+  const isLoading = isStreaming || isSubmitting || executing || anyUploading;
   // Can stop when streaming OR when waiting for first chunk (submitted)
   // This allows cancelling slow initial responses
   const canStop = isStreaming || isSubmitting;
@@ -870,6 +879,80 @@ function ChatInterface({
 
   // Track selected routine for when user submits
   const [selectedRoutine, setSelectedRoutine] = useState(null);
+
+  // File attachment handlers - uploads to S3 immediately on select
+  const handleFileSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    // Reset file input so same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+
+    // Create placeholder attachments (show uploading state)
+    const placeholders = files.map((file) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const isImage = file.type.startsWith("image/");
+
+      return {
+        id,
+        file,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        isImage,
+        preview: isImage ? URL.createObjectURL(file) : null,
+        uploading: true,
+        uploaded: false,
+      };
+    });
+
+    setAttachments((prev) => [...prev, ...placeholders]);
+
+    // Upload each file to S3
+    for (const placeholder of placeholders) {
+      try {
+        const result = await uploadFile(placeholder.file);
+
+        // Update attachment with S3 data
+        setAttachments((prev) =>
+          prev.map((att) =>
+            att.id === placeholder.id
+              ? {
+                  ...att,
+                  uploading: false,
+                  uploaded: true,
+                  key: result.key,
+                  url: result.url,
+                }
+              : att
+          )
+        );
+      } catch (err) {
+        console.error("Upload failed:", err);
+        toast.error(`Failed to upload ${placeholder.name}`);
+
+        // Remove failed upload
+        setAttachments((prev) => {
+          const att = prev.find((a) => a.id === placeholder.id);
+          if (att?.preview) URL.revokeObjectURL(att.preview);
+          return prev.filter((a) => a.id !== placeholder.id);
+        });
+      }
+    }
+  };
+
+  const handleRemoveAttachment = (id) => {
+    setAttachments((prev) => {
+      const attachment = prev.find((a) => a.id === id);
+      // Revoke object URL to free memory
+      if (attachment?.preview) {
+        URL.revokeObjectURL(attachment.preview);
+      }
+      return prev.filter((a) => a.id !== id);
+    });
+  };
 
   // Handle selecting a tool or routine from autocomplete
   const handleSelectItem = (item) => {
@@ -1001,6 +1084,7 @@ function ChatInterface({
 
     // Determine the message text
     let messageText = input;
+    let isRoutineExecution = false;
 
     // Check if this is a routine execution (user selected from "/" menu)
     if (selectedRoutine && input.startsWith(`/${selectedRoutine.name}`)) {
@@ -1009,10 +1093,11 @@ function ChatInterface({
       if (additionalContext) {
         messageText += `\n\nAdditional context: ${additionalContext}`;
       }
+      isRoutineExecution = true;
     }
 
-    // Check if this is a tool slash command
-    if (isSlashCommand(input)) {
+    // Check if this is a tool slash command (but NOT if we already handled it as a routine)
+    if (!isRoutineExecution && isSlashCommand(input)) {
       const parsed = parseCommand(input);
       if (parsed) {
         await executeSlashCommand(parsed.tool, parsed.params);
@@ -1032,12 +1117,37 @@ function ChatInterface({
       return;
     }
 
+    // Check all attachments are uploaded
+    const pendingUploads = attachments.filter((a) => a.uploading);
+    if (pendingUploads.length > 0) {
+      toast.info("Please wait for uploads to complete");
+      return;
+    }
+
+    // Build attachments from S3 URLs (already uploaded)
+    const uploadedAttachments = attachments
+      .filter((a) => a.uploaded && a.url)
+      .map((att) => ({
+        name: att.name,
+        contentType: att.type,
+        url: att.url,
+        key: att.key,
+      }));
+
     sendMessage(
-      { text: messageText },
+      {
+        text: messageText,
+        experimental_attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+      },
       { body: { agentId, chatId } }
     );
     setInput("");
     setSelectedRoutine(null);
+    // Clear attachments after sending
+    attachments.forEach((att) => {
+      if (att.preview) URL.revokeObjectURL(att.preview);
+    });
+    setAttachments([]);
   };
 
   // Load/clear messages when initialMessages change (switching chats or new chat)
@@ -1206,7 +1316,85 @@ function ChatInterface({
               />
             )}
 
+            {/* Attachment chips */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
+                      att.uploading
+                        ? "bg-cyan-500/10 border border-cyan-500/30"
+                        : att.uploaded
+                        ? "bg-green-500/10 border border-green-500/30"
+                        : "bg-white/5 border border-white/10"
+                    }`}
+                  >
+                    {att.uploading ? (
+                      <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                    ) : att.isImage ? (
+                      att.preview ? (
+                        <img
+                          src={att.preview}
+                          alt={att.name}
+                          className="w-5 h-5 rounded object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="w-4 h-4 text-blue-400" />
+                      )
+                    ) : att.type === "application/pdf" ? (
+                      <FileText className="w-4 h-4 text-red-400" />
+                    ) : (
+                      <FileIcon className="w-4 h-4 text-white/50" />
+                    )}
+                    <span className="text-white/70 max-w-[150px] truncate">
+                      {att.name}
+                    </span>
+                    <span className="text-white/30 text-xs">
+                      {att.uploading
+                        ? "uploading..."
+                        : att.size < 1024
+                        ? `${att.size}B`
+                        : att.size < 1024 * 1024
+                        ? `${(att.size / 1024).toFixed(1)}KB`
+                        : `${(att.size / 1024 / 1024).toFixed(1)}MB`}
+                    </span>
+                    {att.uploaded && <Check className="w-3.5 h-3.5 text-green-400" />}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      disabled={att.uploading}
+                      className="text-white/30 hover:text-white/60 transition-colors disabled:opacity-50"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="flex gap-2">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+                accept="image/*,.pdf,.txt,.json,.csv,.md,.doc,.docx,.xls,.xlsx"
+              />
+
+              {/* File attach button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="h-12 px-3 bg-white/5 border border-white/10 rounded-md text-white/50 hover:text-white/80 hover:bg-white/10 transition-colors disabled:opacity-50"
+                title="Attach files"
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+
               <input
                 ref={inputRef}
                 type="text"
@@ -1230,7 +1418,7 @@ function ChatInterface({
               ) : (
                 <Button
                   type="submit"
-                  disabled={!input.trim() || isLoading}
+                  disabled={(!input.trim() && attachments.length === 0) || isLoading}
                   className="h-12 px-4 bg-cyan-500 hover:bg-cyan-400 text-black"
                 >
                   {isLoading ? (
