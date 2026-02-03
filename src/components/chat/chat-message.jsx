@@ -58,6 +58,23 @@ function UserMessage({ parts }) {
 
   if (!text) return null;
 
+  // Check if this is a routine execution - show it nicely instead of raw prompt
+  const routineMatch = text.match(/^Run the "([^"]+)" routine:\n\n([\s\S]*?)(?:\n\nAdditional context: ([\s\S]*))?$/);
+  if (routineMatch) {
+    const [, routineName, , context] = routineMatch;
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="text-black/60 text-sm">Running</span>
+          <code className="bg-black/20 px-1.5 py-0.5 rounded text-sm font-mono">/{routineName}</code>
+        </div>
+        {context && (
+          <p className="text-sm opacity-90">{context}</p>
+        )}
+      </div>
+    );
+  }
+
   return <p className="whitespace-pre-wrap">{text}</p>;
 }
 
