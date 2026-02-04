@@ -115,28 +115,11 @@ export async function POST(request) {
     
     const s3Key = `actionchat/${pathPrefix}/${folder}/${timestamp}-${randomString}.${fileExtension}`
 
-    // Generate presigned URL for PRIVATE upload (no public access)
+    // Generate presigned URLs
     const { presignedUrl } = await generatePrivateUploadUrl(s3Key, contentType)
+    const signedUrl = await generatePresignedGetUrl(s3Key)
 
-    // Generate a signed view URL (valid for 24 hours)
-    const signedViewUrl = await generatePresignedGetUrl(s3Key)
-
-    // Determine asset type for frontend
-    let assetType = 'file'
-    if (isImage) assetType = 'image'
-    else if (isVideo) assetType = 'video'
-    else if (isAudio) assetType = 'audio'
-    else if (isPDF) assetType = 'pdf'
-    else if (isText) assetType = 'text'
-    else if (isData) assetType = 'data'
-    else if (isOffice) assetType = 'document'
-
-    return NextResponse.json({
-      presignedUrl,
-      signedUrl: signedViewUrl, // Use this to display the file (expires in 24h)
-      key: s3Key,
-      type: assetType
-    })
+    return NextResponse.json({ presignedUrl, signedUrl, key: s3Key })
   } catch (error) {
     console.error('Error generating presigned URL:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

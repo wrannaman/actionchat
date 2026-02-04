@@ -697,7 +697,7 @@ function ChatInterface({
   const [isDragging, setIsDragging] = useState(false);
   const [dropUploading, setDropUploading] = useState(false);
   const dragCounterRef = useRef(0);
-  const { upload: uploadFile, uploading: fileUploading } = useFileUpload();
+  const { upload: uploadFile } = useFileUpload();
 
   // Save as Routine dialog
   const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
@@ -1209,7 +1209,7 @@ function ChatInterface({
     sendMessage(
       {
         text: messageText,
-        experimental_attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+        attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
       },
       { body: { agentId, chatId } }
     );

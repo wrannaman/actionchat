@@ -15,6 +15,7 @@ DROP TABLE IF EXISTS
   agent_sources,
   agents,
   tools,
+  template_tools,
   user_api_credentials,
   api_sources,
   source_templates,
@@ -35,3 +36,6 @@ DROP FUNCTION IF EXISTS get_my_org_id CASCADE;
 DROP FUNCTION IF EXISTS check_domain_auto_join CASCADE;
 DROP FUNCTION IF EXISTS get_agent_tools CASCADE;
 DROP FUNCTION IF EXISTS get_user_accessible_agents CASCADE;
+DROP FUNCTION IF EXISTS search_tools_semantic CASCADE;
+DROP FUNCTION IF EXISTS search_template_tools_semantic CASCADE;
+DROP FUNCTION IF EXISTS get_template_tools CASCADE;

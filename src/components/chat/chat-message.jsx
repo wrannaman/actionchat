@@ -22,11 +22,11 @@ function normalizeParts(message) {
 }
 
 export function ChatMessage({ message, onApprove, onReject }) {
-  const { role, experimental_attachments } = message;
+  const { role, attachments } = message;
   const parts = normalizeParts(message);
 
   if (role === "user") {
-    return <UserMessage parts={parts} attachments={experimental_attachments} />;
+    return <UserMessage parts={parts} attachments={attachments} />;
   }
 
   if (role === "assistant") {

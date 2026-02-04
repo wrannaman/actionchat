@@ -1,5 +1,6 @@
 import { createClient, getUserOrgId } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
+import { generatePresignedGetUrl } from '@/lib/s3';
 
 /**
  * GET /api/workspace/chats/[chatId] — Load a specific chat with messages
@@ -49,6 +50,30 @@ export async function GET(request, { params }) {
       return Response.json({ error: 'Failed to load messages' }, { status: 500 });
     }
 
+    // Collect all S3 keys that need fresh signed URLs
+    const keysToSign = [];
+    for (const msg of (messages || [])) {
+      if (msg.metadata?.attachments) {
+        for (const att of msg.metadata.attachments) {
+          if (att.key) keysToSign.push(att.key);
+        }
+      }
+    }
+
+    // Generate fresh signed URLs for all attachments
+    const signedUrls = {};
+    if (keysToSign.length > 0) {
+      await Promise.all(
+        keysToSign.map(async (key) => {
+          try {
+            signedUrls[key] = await generatePresignedGetUrl(key);
+          } catch (err) {
+            console.error(`[CHAT] Failed to sign key ${key}:`, err);
+          }
+        })
+      );
+    }
+
     // Convert to AI SDK UIMessage format
     // IMPORTANT: For historical messages, we use TEXT-ONLY parts for useChat
     // (to avoid AI SDK errors about missing tool results), but we ALSO include
@@ -69,6 +94,17 @@ export async function GET(request, { params }) {
         content = `Called: ${toolSummary}`;
       }
 
+      // Refresh attachment URLs
+      let attachments = null;
+      if (msg.metadata?.attachments?.length) {
+        attachments = msg.metadata.attachments.map(att => ({
+          name: att.name,
+          contentType: att.contentType,
+          key: att.key,
+          url: signedUrls[att.key] || null,
+        })).filter(att => att.url);
+      }
+
       return {
         id: msg.id,
         role: msg.role,
@@ -77,6 +113,8 @@ export async function GET(request, { params }) {
         parts: [{ type: 'text', text: content }],
         // Include stored tool_calls for ChatMessage to render rich displays
         toolCalls: msg.tool_calls || null,
+        // Include refreshed attachments
+        attachments,
         createdAt: msg.created_at,
       };
     });

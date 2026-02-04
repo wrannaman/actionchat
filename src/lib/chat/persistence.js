@@ -56,13 +56,16 @@ export async function saveConversation(supabase, {
     const lastUserMsg = messages.findLast(m => m.role === 'user');
     if (lastUserMsg) {
       const userText = extractText(lastUserMsg);
-      if (userText) {
+      const attachments = extractAttachments(lastUserMsg);
+
+      if (userText || attachments.length > 0) {
         const { data: userMsgData, error: userMsgError } = await supabase
           .from('messages')
           .insert({
             chat_id: chatId,
             role: 'user',
-            content: userText,
+            content: userText || '',
+            metadata: attachments.length > 0 ? { attachments } : null,
           })
           .select('id')
           .single();
@@ -127,6 +130,19 @@ function extractText(message) {
     return message.content;
   }
   return '';
+}
+
+/**
+ * Extract attachments from a UI message.
+ * Stores the S3 key so we can generate fresh signed URLs on load.
+ */
+function extractAttachments(message) {
+  const attachments = message.attachments || message.experimental_attachments || [];
+  return attachments.map(att => ({
+    name: att.name,
+    contentType: att.contentType,
+    key: att.key, // S3 key - used to generate fresh signed URLs
+  })).filter(att => att.key); // Only store if we have a key
 }
 
 /**
