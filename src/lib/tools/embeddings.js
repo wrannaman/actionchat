@@ -7,7 +7,14 @@
 
 import OpenAI from 'openai';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy initialization - only create client when needed
+let openai = null;
+function getOpenAI() {
+  if (!openai) {
+    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openai;
+}
 
 /**
  * Generate embedding for a tool (called during sync).
@@ -17,7 +24,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  */
 export async function embedTool(tool) {
   const text = `${tool.name}: ${tool.description || ''} (${tool.method} ${tool.path})`;
-  const response = await openai.embeddings.create({
+  const response = await getOpenAI().embeddings.create({
     model: 'text-embedding-3-small',
     input: text.slice(0, 8000), // Limit to avoid token issues
   });
@@ -31,7 +38,7 @@ export async function embedTool(tool) {
  * @returns {Promise<number[]>} - 1536-dimension embedding vector
  */
 export async function embedQuery(query) {
-  const response = await openai.embeddings.create({
+  const response = await getOpenAI().embeddings.create({
     model: 'text-embedding-3-small',
     input: query,
   });
