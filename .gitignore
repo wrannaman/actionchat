@@ -62,3 +62,8 @@ coverage/
 .env.test
 
 README.internal.md
+
+
+.mcp.json
+.plans
+coverage

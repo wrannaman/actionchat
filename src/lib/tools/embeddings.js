@@ -1,52 +1,62 @@
 /**
  * Tool Embeddings Module
  *
- * Generates embeddings for tools and user queries for semantic search.
- * Uses OpenAI's text-embedding-3-small model (1536 dimensions).
+ * Thin wrapper around @/lib/ai embedding functions for tool-specific operations.
+ * All provider logic lives in ai.js - this module just adds tool/query formatting.
+ *
+ * Platform-level config via env vars (see ai.js):
+ *   EMBEDDING_PROVIDER=openai|google|ollama (default: openai)
+ *   EMBEDDING_MODEL=text-embedding-3-small (provider-specific default)
+ *   EMBEDDING_API_KEY=... (uses OPENAI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY as fallback)
+ *   EMBEDDING_BASE_URL=... (for Ollama, e.g., http://localhost:11434/v1)
+ *
+ * Dual-column support:
+ *   - OpenAI uses embedding_1536 column (1536 dimensions)
+ *   - Google/Ollama use embedding_768 column (768 dimensions)
+ *   Both columns can coexist - switching providers just requires re-syncing.
  */
 
-import OpenAI from 'openai';
+import {
+  generateEmbedding as aiGenerateEmbedding,
+  getEmbeddingConfig,
+} from '@/lib/ai';
 
-// Lazy initialization - only create client when needed
-let openai = null;
-function getOpenAI() {
-  if (!openai) {
-    openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return openai;
+// Re-export getEmbeddingConfig for consumers that import from here
+export { getEmbeddingConfig };
+
+/**
+ * Get the embedding dimension and column name for the current provider.
+ * Delegates to getEmbeddingConfig() from ai.js.
+ */
+export function getEmbeddingDimension() {
+  const { dimension, column } = getEmbeddingConfig();
+  return { dimension, column };
 }
 
 /**
  * Generate embedding for a tool (called during sync).
  *
  * @param {object} tool - Tool object with name, description, method, path
- * @returns {Promise<number[]>} - 1536-dimension embedding vector
+ * @returns {Promise<number[]>} - Embedding vector
  */
 export async function embedTool(tool) {
   const text = `${tool.name}: ${tool.description || ''} (${tool.method} ${tool.path})`;
-  const response = await getOpenAI().embeddings.create({
-    model: 'text-embedding-3-small',
-    input: text.slice(0, 8000), // Limit to avoid token issues
-  });
-  return response.data[0].embedding;
+  return aiGenerateEmbedding(text);
 }
 
 /**
  * Generate embedding for a user query (called during chat).
  *
  * @param {string} query - User's natural language query
- * @returns {Promise<number[]>} - 1536-dimension embedding vector
+ * @returns {Promise<number[]>} - Embedding vector
  */
 export async function embedQuery(query) {
-  const response = await getOpenAI().embeddings.create({
-    model: 'text-embedding-3-small',
-    input: query,
-  });
-  return response.data[0].embedding;
+  return aiGenerateEmbedding(query);
 }
 
 /**
  * Search tools by semantic similarity.
+ * Automatically uses the correct RPC function based on configured provider.
  *
  * @param {object} supabase - Supabase client
  * @param {string[]} sourceIds - Source UUIDs to search within
@@ -56,8 +66,14 @@ export async function embedQuery(query) {
  */
 export async function searchTools(supabase, sourceIds, query, limit = 64) {
   const embedding = await embedQuery(query);
+  const { dimension } = getEmbeddingDimension();
 
-  const { data: matches, error } = await supabase.rpc('search_tools_semantic', {
+  // Use the dimension-specific RPC function
+  const rpcName = dimension === 768
+    ? 'search_tools_semantic_768'
+    : 'search_tools_semantic_1536';
+
+  const { data: matches, error } = await supabase.rpc(rpcName, {
     p_source_ids: sourceIds,
     p_embedding: embedding,
     p_limit: limit,
@@ -79,18 +95,22 @@ export async function searchTools(supabase, sourceIds, query, limit = 64) {
  * @returns {Promise<{total: number, withEmbeddings: number}>}
  */
 export async function getEmbeddingCoverage(supabase, sourceIds) {
-  const { count: total } = await supabase
-    .from('tools')
-    .select('id', { count: 'exact', head: true })
-    .in('source_id', sourceIds)
-    .eq('is_active', true);
+  const { column } = getEmbeddingDimension();
 
-  const { count: withEmbeddings } = await supabase
-    .from('tools')
-    .select('id', { count: 'exact', head: true })
-    .in('source_id', sourceIds)
-    .eq('is_active', true)
-    .not('embedding', 'is', null);
+  // Run both queries in parallel
+  const [{ count: total }, { count: withEmbeddings }] = await Promise.all([
+    supabase
+      .from('tools')
+      .select('id', { count: 'exact', head: true })
+      .in('source_id', sourceIds)
+      .eq('is_active', true),
+    supabase
+      .from('tools')
+      .select('id', { count: 'exact', head: true })
+      .in('source_id', sourceIds)
+      .eq('is_active', true)
+      .not(column, 'is', null),
+  ]);
 
   return { total: total || 0, withEmbeddings: withEmbeddings || 0 };
 }
@@ -110,8 +130,13 @@ export async function getEmbeddingCoverage(supabase, sourceIds) {
  */
 export async function searchTemplateTools(supabase, templateIds, query, limit = 64) {
   const embedding = await embedQuery(query);
+  const { dimension } = getEmbeddingDimension();
 
-  const { data: matches, error } = await supabase.rpc('search_template_tools_semantic', {
+  const rpcName = dimension === 768
+    ? 'search_template_tools_semantic_768'
+    : 'search_template_tools_semantic_1536';
+
+  const { data: matches, error } = await supabase.rpc(rpcName, {
     p_template_ids: templateIds,
     p_embedding: embedding,
     p_limit: limit,
@@ -133,18 +158,22 @@ export async function searchTemplateTools(supabase, templateIds, query, limit = 
  * @returns {Promise<{total: number, withEmbeddings: number}>}
  */
 export async function getTemplateEmbeddingCoverage(supabase, templateIds) {
-  const { count: total } = await supabase
-    .from('template_tools')
-    .select('id', { count: 'exact', head: true })
-    .in('template_id', templateIds)
-    .eq('is_active', true);
+  const { column } = getEmbeddingDimension();
 
-  const { count: withEmbeddings } = await supabase
-    .from('template_tools')
-    .select('id', { count: 'exact', head: true })
-    .in('template_id', templateIds)
-    .eq('is_active', true)
-    .not('embedding', 'is', null);
+  // Run both queries in parallel
+  const [{ count: total }, { count: withEmbeddings }] = await Promise.all([
+    supabase
+      .from('template_tools')
+      .select('id', { count: 'exact', head: true })
+      .in('template_id', templateIds)
+      .eq('is_active', true),
+    supabase
+      .from('template_tools')
+      .select('id', { count: 'exact', head: true })
+      .in('template_id', templateIds)
+      .eq('is_active', true)
+      .not(column, 'is', null),
+  ]);
 
   return { total: total || 0, withEmbeddings: withEmbeddings || 0 };
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
-import { parseOpenApiSpec, embedTool } from '@/lib/tools';
+import { parseOpenApiSpec, embedTool, getEmbeddingDimension } from '@/lib/tools';
 import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
 import { cookies } from 'next/headers';
 import { getPermissions, requireAdmin } from '@/utils/permissions';
@@ -133,30 +133,38 @@ async function syncMcpSource(supabase, source, userId) {
       toolsToEmbed.push({ id: toolId, ...updates });
     }
 
+    // Batch deactivate tools no longer in MCP (single query instead of N+1)
     if (removedOpIds.length > 0) {
-      for (const opId of removedOpIds) {
-        await supabase
-          .from('tools')
-          .update({ is_active: false })
-          .eq('source_id', source.id)
-          .eq('operation_id', opId);
-      }
+      await supabase
+        .from('tools')
+        .update({ is_active: false })
+        .eq('source_id', source.id)
+        .in('operation_id', removedOpIds);
       removedCount = removedOpIds.length;
     }
 
-    // Generate embeddings for new/updated tools
-    console.log('[MCP SYNC] Generating embeddings for', toolsToEmbed.length, 'tools...');
-    for (const tool of toolsToEmbed) {
-      try {
-        const embedding = await embedTool(tool);
-        await supabase
-          .from('tools')
-          .update({ embedding })
-          .eq('id', tool.id);
-        embeddedCount++;
-      } catch (e) {
-        console.warn('[MCP SYNC] Failed to embed tool:', tool.name, e.message);
-      }
+    // Generate embeddings for new/updated tools (parallel with concurrency limit)
+    const { column: embeddingColumn } = getEmbeddingDimension();
+    console.log('[MCP SYNC] Generating embeddings for', toolsToEmbed.length, 'tools using column:', embeddingColumn);
+    const CONCURRENCY = 10;
+    for (let i = 0; i < toolsToEmbed.length; i += CONCURRENCY) {
+      const batch = toolsToEmbed.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (tool) => {
+          try {
+            const embedding = await embedTool(tool);
+            await supabase
+              .from('tools')
+              .update({ [embeddingColumn]: embedding })
+              .eq('id', tool.id);
+            return true;
+          } catch (e) {
+            console.warn('[MCP SYNC] Failed to embed tool:', tool.name, e.message);
+            return false;
+          }
+        })
+      );
+      embeddedCount += results.filter(Boolean).length;
     }
     console.log('[MCP SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
 
@@ -412,30 +420,38 @@ export async function POST(request, { params }) {
       toolsToEmbed.push({ id: toolId, ...updates });
     }
 
+    // Batch deactivate tools no longer in spec (single query instead of N+1)
     if (removedOpIds.length > 0) {
-      for (const opId of removedOpIds) {
-        await supabase
-          .from('tools')
-          .update({ is_active: false })
-          .eq('source_id', id)
-          .eq('operation_id', opId);
-      }
+      await supabase
+        .from('tools')
+        .update({ is_active: false })
+        .eq('source_id', id)
+        .in('operation_id', removedOpIds);
       removedCount = removedOpIds.length;
     }
 
-    // Generate embeddings for new/updated tools
-    console.log('[SYNC] Generating embeddings for', toolsToEmbed.length, 'tools...');
-    for (const tool of toolsToEmbed) {
-      try {
-        const embedding = await embedTool(tool);
-        await supabase
-          .from('tools')
-          .update({ embedding })
-          .eq('id', tool.id);
-        embeddedCount++;
-      } catch (e) {
-        console.warn('[SYNC] Failed to embed tool:', tool.name, e.message);
-      }
+    // Generate embeddings for new/updated tools (parallel with concurrency limit)
+    const { column: embeddingColumn } = getEmbeddingDimension();
+    console.log('[SYNC] Generating embeddings for', toolsToEmbed.length, 'tools using column:', embeddingColumn);
+    const CONCURRENCY = 10;
+    for (let i = 0; i < toolsToEmbed.length; i += CONCURRENCY) {
+      const batch = toolsToEmbed.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (tool) => {
+          try {
+            const embedding = await embedTool(tool);
+            await supabase
+              .from('tools')
+              .update({ [embeddingColumn]: embedding })
+              .eq('id', tool.id);
+            return true;
+          } catch (e) {
+            console.warn('[SYNC] Failed to embed tool:', tool.name, e.message);
+            return false;
+          }
+        })
+      );
+      embeddedCount += results.filter(Boolean).length;
     }
     console.log('[SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
 

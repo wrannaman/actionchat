@@ -27,7 +27,7 @@
  *   return toStreamResponse(result, { originalMessages: messages });
  */
 
-import { streamText, convertToModelMessages, stepCountIs } from 'ai';
+import { streamText, convertToModelMessages, stepCountIs, embed } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -76,6 +76,25 @@ export function getTelemetryConfig(metadata = {}) {
 }
 
 // ============================================================================
+// EMBEDDING CONFIG (Platform-level, from env vars)
+// ============================================================================
+
+const EMBEDDING_PROVIDER = process.env.EMBEDDING_PROVIDER || 'openai';
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL; // Falls back to provider default
+const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY
+  || (EMBEDDING_PROVIDER === 'google'
+      ? process.env.GOOGLE_GENERATIVE_AI_API_KEY
+      : process.env.OPENAI_API_KEY);
+const EMBEDDING_BASE_URL = process.env.EMBEDDING_BASE_URL;
+
+// OpenAI text-embedding-3-small has ~8191 token limit; 8000 chars is a safe approximation
+const MAX_EMBEDDING_INPUT_CHARS = 8000;
+
+// Cached embedding model instance (avoid recreating on every call)
+let cachedEmbeddingModel = null;
+let cachedEmbeddingProvider = null;
+
+// ============================================================================
 // PROVIDER REGISTRY
 // ============================================================================
 
@@ -100,6 +119,9 @@ const PROVIDERS = {
     // Responses API has previousResponseId continuation that can expire and cause
     // "Item with id 'rs_xxx' not found" errors on subsequent requests
     useChat: true,
+    // Embedding config
+    embeddingModel: 'text-embedding-3-small',
+    embeddingDimension: 1536,
   },
 
   anthropic: {
@@ -108,6 +130,7 @@ const PROVIDERS = {
     keyField: 'anthropic_api_key',
     defaultModel: 'claude-sonnet-4-20250514',
     capabilities: { tools: true, vision: true, streaming: true },
+    // Note: Anthropic does not offer embedding models
   },
 
   google: {
@@ -116,6 +139,9 @@ const PROVIDERS = {
     keyField: 'google_generative_ai_api_key',
     defaultModel: 'gemini-3-pro',
     capabilities: { tools: true, vision: true, streaming: true },
+    // Embedding config
+    embeddingModel: 'text-embedding-004',
+    embeddingDimension: 768,
   },
 
   ollama: {
@@ -126,6 +152,9 @@ const PROVIDERS = {
     defaultModel: 'llama4',
     capabilities: { tools: true, vision: true, streaming: true },
     requiresKey: false,
+    // Embedding config
+    embeddingModel: 'nomic-embed-text',
+    embeddingDimension: 768,
   },
 };
 
@@ -358,4 +387,88 @@ const MODELS = {
 
 export function getModelsForProvider(provider) {
   return MODELS[provider] || [];
+}
+
+// ============================================================================
+// EMBEDDING FUNCTIONS
+// ============================================================================
+
+/**
+ * Get an embedding model instance using AI SDK.
+ * Uses platform-level env vars (EMBEDDING_PROVIDER, EMBEDDING_MODEL, etc.)
+ *
+ * @example
+ * const model = getEmbeddingModel();
+ * const { embedding } = await embed({ model, value: 'hello world' });
+ */
+export function getEmbeddingModel() {
+  // Return cached model if provider hasn't changed
+  if (cachedEmbeddingModel && cachedEmbeddingProvider === EMBEDDING_PROVIDER) {
+    return cachedEmbeddingModel;
+  }
+
+  const providerConfig = PROVIDERS[EMBEDDING_PROVIDER];
+  if (!providerConfig) {
+    throw new Error(`Unknown embedding provider: "${EMBEDDING_PROVIDER}"`);
+  }
+  if (!providerConfig.embeddingModel) {
+    throw new Error(`Provider "${EMBEDDING_PROVIDER}" does not support embeddings`);
+  }
+
+  // Build provider options
+  const options = {};
+  if (EMBEDDING_API_KEY) {
+    options.apiKey = EMBEDDING_API_KEY;
+  } else if (providerConfig.requiresKey !== false) {
+    throw new Error(
+      `Embedding API key not configured. Set EMBEDDING_API_KEY or ${
+        EMBEDDING_PROVIDER === 'google' ? 'GOOGLE_GENERATIVE_AI_API_KEY' : 'OPENAI_API_KEY'
+      } in your environment.`
+    );
+  }
+
+  // Handle base URL (for Ollama or custom endpoints)
+  if (providerConfig.baseUrlField) {
+    options.baseURL = EMBEDDING_BASE_URL || providerConfig.defaultBaseUrl;
+  }
+
+  // Create provider and cache the model
+  const provider = providerConfig.create(options);
+  const modelId = EMBEDDING_MODEL || providerConfig.embeddingModel;
+  cachedEmbeddingModel = provider.embedding(modelId);
+  cachedEmbeddingProvider = EMBEDDING_PROVIDER;
+
+  return cachedEmbeddingModel;
+}
+
+/**
+ * Generate an embedding for text using the configured provider.
+ * Uses AI SDK's embed() function for consistent multi-provider support.
+ *
+ * @param {string} text - Text to embed
+ * @returns {Promise<number[]>} - Embedding vector
+ */
+export async function generateEmbedding(text) {
+  const { embedding } = await embed({
+    model: getEmbeddingModel(),
+    value: text.slice(0, MAX_EMBEDDING_INPUT_CHARS),
+  });
+  return embedding;
+}
+
+/**
+ * Get current embedding configuration (for debugging/admin).
+ *
+ * @returns {{ provider: string, model: string, dimension: number, column: string, hasApiKey: boolean }}
+ */
+export function getEmbeddingConfig() {
+  const providerConfig = PROVIDERS[EMBEDDING_PROVIDER];
+  const dimension = providerConfig?.embeddingDimension || 1536;
+  return {
+    provider: EMBEDDING_PROVIDER,
+    model: EMBEDDING_MODEL || providerConfig?.embeddingModel,
+    dimension,
+    column: dimension === 768 ? 'embedding_768' : 'embedding_1536',
+    hasApiKey: !!EMBEDDING_API_KEY,
+  };
 }

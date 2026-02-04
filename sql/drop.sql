@@ -38,4 +38,8 @@ DROP FUNCTION IF EXISTS get_agent_tools CASCADE;
 DROP FUNCTION IF EXISTS get_user_accessible_agents CASCADE;
 DROP FUNCTION IF EXISTS search_tools_semantic CASCADE;
 DROP FUNCTION IF EXISTS search_template_tools_semantic CASCADE;
+DROP FUNCTION IF EXISTS search_tools_semantic_1536 CASCADE;
+DROP FUNCTION IF EXISTS search_tools_semantic_768 CASCADE;
+DROP FUNCTION IF EXISTS search_template_tools_semantic_1536 CASCADE;
+DROP FUNCTION IF EXISTS search_template_tools_semantic_768 CASCADE;
 DROP FUNCTION IF EXISTS get_template_tools CASCADE;

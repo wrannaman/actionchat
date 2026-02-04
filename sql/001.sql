@@ -82,11 +82,11 @@ CREATE TABLE source_templates (
 
   -- Template content
   source_type TEXT NOT NULL CHECK (source_type IN ('openapi', 'mcp')),
+  base_url TEXT,                          -- API base URL (e.g. "https://api.stripe.com")
   spec_url TEXT,                          -- for OpenAPI: URL to fetch spec
   spec_content JSONB,                     -- cached spec
-  mcp_package TEXT,                       -- for stdio MCP: npm package or path
   mcp_server_url TEXT,                    -- for HTTP MCP: remote server URL
-  mcp_transport TEXT DEFAULT 'stdio',     -- 'stdio' or 'http'
+  mcp_transport TEXT DEFAULT 'http',      -- HTTP MCP only (stdio not supported)
 
   -- Auth configuration
   auth_type TEXT DEFAULT 'api_key',
@@ -96,13 +96,7 @@ CREATE TABLE source_templates (
   use_cases TEXT[] DEFAULT '{}',
 
   -- MCP behavior hints (applied at runtime for ALL users of this template)
-  -- This is where we store our learnings about how each MCP behaves
   mcp_hints JSONB DEFAULT '{}',
-  -- Example: {
-  --   "list_expansion": { "param": "expand", "default": ["*"] },
-  --   "fetch_tool": "fetch_stripe_resources",
-  --   "llm_guidance": "Use expand param for full data"
-  -- }
 
   -- Metadata
   is_featured BOOLEAN DEFAULT false,
@@ -113,7 +107,7 @@ CREATE TABLE source_templates (
 CREATE TRIGGER trg_source_templates BEFORE UPDATE ON source_templates FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE INDEX idx_templates_category ON source_templates(category);
 CREATE INDEX idx_templates_featured ON source_templates(is_featured) WHERE is_featured = true;
-COMMENT ON TABLE source_templates IS 'Pre-configured integration templates for one-click setup.';
+COMMENT ON TABLE source_templates IS 'Pre-configured integration templates. base_url is the API endpoint. HTTP MCP only.';
 
 -- ============================================================================
 -- 4b. TEMPLATE_TOOLS — global tools for templates (shared across all orgs)
@@ -137,15 +131,18 @@ CREATE TABLE template_tools (
   requires_confirmation BOOLEAN NOT NULL DEFAULT false,
   tags TEXT[] NOT NULL DEFAULT '{}',
   is_active BOOLEAN NOT NULL DEFAULT true,
-  -- Semantic search embedding (1536 dimensions for text-embedding-3-small)
-  embedding extensions.vector(1536),
+  -- Dual embedding columns: OpenAI (1536) and Gemini/Ollama (768)
+  -- See docs/embeddings.md for configuration
+  embedding_1536 extensions.vector(1536),
+  embedding_768 extensions.vector(768),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TRIGGER trg_template_tools BEFORE UPDATE ON template_tools FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE INDEX idx_template_tools_template ON template_tools(template_id) WHERE is_active;
 CREATE UNIQUE INDEX idx_template_tools_operation ON template_tools(template_id, operation_id) WHERE operation_id IS NOT NULL;
-CREATE INDEX idx_template_tools_embedding ON template_tools USING hnsw (embedding extensions.vector_cosine_ops);
+CREATE INDEX idx_template_tools_embedding_1536 ON template_tools USING hnsw (embedding_1536 extensions.vector_cosine_ops);
+CREATE INDEX idx_template_tools_embedding_768 ON template_tools USING hnsw (embedding_768 extensions.vector_cosine_ops);
 COMMENT ON TABLE template_tools IS 'Global tools for templates (Stripe, Twilio, etc). Shared across all orgs. Embeddings generated once globally.';
 
 -- ============================================================================
@@ -223,8 +220,10 @@ CREATE TABLE tools (
   requires_confirmation BOOLEAN NOT NULL DEFAULT false,
   tags TEXT[] NOT NULL DEFAULT '{}',
   is_active BOOLEAN NOT NULL DEFAULT true,
-  -- Semantic search embedding (1536 dimensions for text-embedding-3-small)
-  embedding extensions.vector(1536),
+  -- Dual embedding columns: OpenAI (1536) and Gemini/Ollama (768)
+  -- See docs/embeddings.md for configuration
+  embedding_1536 extensions.vector(1536),
+  embedding_768 extensions.vector(768),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -232,7 +231,8 @@ CREATE TRIGGER trg_tools BEFORE UPDATE ON tools FOR EACH ROW EXECUTE FUNCTION se
 CREATE INDEX idx_tools_source ON tools(source_id) WHERE is_active;
 CREATE UNIQUE INDEX idx_tools_operation ON tools(source_id, operation_id) WHERE operation_id IS NOT NULL;
 CREATE INDEX idx_tools_tags ON tools USING GIN (tags);
-CREATE INDEX idx_tools_embedding ON tools USING hnsw (embedding extensions.vector_cosine_ops);
+CREATE INDEX idx_tools_embedding_1536 ON tools USING hnsw (embedding_1536 extensions.vector_cosine_ops);
+CREATE INDEX idx_tools_embedding_768 ON tools USING hnsw (embedding_768 extensions.vector_cosine_ops);
 COMMENT ON TABLE tools IS 'Per-org custom tools (non-template sources). For template sources (Stripe, etc), use template_tools instead.';
 
 -- ============================================================================
@@ -661,37 +661,71 @@ BEGIN
   WHERE om.user_id = auth.uid() AND a.is_active;
 END; $$;
 
--- Semantic search for custom tools (per-org) by embedding similarity
-CREATE OR REPLACE FUNCTION search_tools_semantic(
+-- Semantic search for custom tools (per-org) - OpenAI embeddings (1536 dimensions)
+CREATE OR REPLACE FUNCTION search_tools_semantic_1536(
   p_source_ids UUID[],
   p_embedding extensions.vector(1536),
   p_limit INT DEFAULT 64
 )
 RETURNS TABLE (tool_id UUID, similarity FLOAT)
 LANGUAGE sql STABLE AS $$
-  SELECT t.id, 1 - (t.embedding <=> p_embedding) AS similarity
+  SELECT t.id, 1 - (t.embedding_1536 <=> p_embedding) AS similarity
   FROM tools t
   WHERE t.source_id = ANY(p_source_ids)
     AND t.is_active = true
-    AND t.embedding IS NOT NULL
-  ORDER BY t.embedding <=> p_embedding
+    AND t.embedding_1536 IS NOT NULL
+  ORDER BY t.embedding_1536 <=> p_embedding
   LIMIT p_limit;
 $$;
 
--- Semantic search for template tools (global) by embedding similarity
-CREATE OR REPLACE FUNCTION search_template_tools_semantic(
+-- Semantic search for custom tools (per-org) - Gemini/Ollama embeddings (768 dimensions)
+CREATE OR REPLACE FUNCTION search_tools_semantic_768(
+  p_source_ids UUID[],
+  p_embedding extensions.vector(768),
+  p_limit INT DEFAULT 64
+)
+RETURNS TABLE (tool_id UUID, similarity FLOAT)
+LANGUAGE sql STABLE AS $$
+  SELECT t.id, 1 - (t.embedding_768 <=> p_embedding) AS similarity
+  FROM tools t
+  WHERE t.source_id = ANY(p_source_ids)
+    AND t.is_active = true
+    AND t.embedding_768 IS NOT NULL
+  ORDER BY t.embedding_768 <=> p_embedding
+  LIMIT p_limit;
+$$;
+
+-- Semantic search for template tools (global) - OpenAI embeddings (1536 dimensions)
+CREATE OR REPLACE FUNCTION search_template_tools_semantic_1536(
   p_template_ids UUID[],
   p_embedding extensions.vector(1536),
   p_limit INT DEFAULT 64
 )
 RETURNS TABLE (tool_id UUID, similarity FLOAT)
 LANGUAGE sql STABLE AS $$
-  SELECT t.id, 1 - (t.embedding <=> p_embedding) AS similarity
+  SELECT t.id, 1 - (t.embedding_1536 <=> p_embedding) AS similarity
   FROM template_tools t
   WHERE t.template_id = ANY(p_template_ids)
     AND t.is_active = true
-    AND t.embedding IS NOT NULL
-  ORDER BY t.embedding <=> p_embedding
+    AND t.embedding_1536 IS NOT NULL
+  ORDER BY t.embedding_1536 <=> p_embedding
+  LIMIT p_limit;
+$$;
+
+-- Semantic search for template tools (global) - Gemini/Ollama embeddings (768 dimensions)
+CREATE OR REPLACE FUNCTION search_template_tools_semantic_768(
+  p_template_ids UUID[],
+  p_embedding extensions.vector(768),
+  p_limit INT DEFAULT 64
+)
+RETURNS TABLE (tool_id UUID, similarity FLOAT)
+LANGUAGE sql STABLE AS $$
+  SELECT t.id, 1 - (t.embedding_768 <=> p_embedding) AS similarity
+  FROM template_tools t
+  WHERE t.template_id = ANY(p_template_ids)
+    AND t.is_active = true
+    AND t.embedding_768 IS NOT NULL
+  ORDER BY t.embedding_768 <=> p_embedding
   LIMIT p_limit;
 $$;
 
@@ -724,8 +758,10 @@ GRANT EXECUTE ON FUNCTION get_my_org_id()                    TO authenticated;
 GRANT EXECUTE ON FUNCTION check_domain_auto_join(TEXT)       TO authenticated;
 GRANT EXECUTE ON FUNCTION get_agent_tools(UUID)              TO authenticated;
 GRANT EXECUTE ON FUNCTION get_user_accessible_agents()       TO authenticated;
-GRANT EXECUTE ON FUNCTION search_tools_semantic(UUID[], extensions.vector, INT) TO authenticated;
-GRANT EXECUTE ON FUNCTION search_template_tools_semantic(UUID[], extensions.vector, INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION search_tools_semantic_1536(UUID[], extensions.vector(1536), INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION search_tools_semantic_768(UUID[], extensions.vector(768), INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION search_template_tools_semantic_1536(UUID[], extensions.vector(1536), INT) TO authenticated;
+GRANT EXECUTE ON FUNCTION search_template_tools_semantic_768(UUID[], extensions.vector(768), INT) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_template_tools(UUID)           TO authenticated;
 
 GRANT ALL ON org, org_members, org_invites                   TO authenticated;

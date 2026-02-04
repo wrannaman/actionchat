@@ -1542,6 +1542,66 @@ function ChatInterface({
   );
 }
 
+// LLM Provider configuration for API key setup (module-level to avoid re-creation on render)
+const PROVIDER_CONFIG = {
+  openai: {
+    label: "OpenAI",
+    placeholder: "sk-...",
+    helpUrl: "https://platform.openai.com/api-keys",
+    helpText: "Get an API key from OpenAI",
+    payloadKey: "openai_api_key",
+    baseUrlKey: "openai_base_url",
+    showBaseUrl: true,
+    baseUrlPlaceholder: "Custom base URL (optional, for Azure/proxies)",
+  },
+  anthropic: {
+    label: "Claude",
+    placeholder: "sk-ant-...",
+    helpUrl: "https://console.anthropic.com/settings/keys",
+    helpText: "Get an API key from Anthropic",
+    payloadKey: "anthropic_api_key",
+  },
+  google: {
+    label: "Gemini",
+    placeholder: "AIza...",
+    helpUrl: "https://aistudio.google.com/apikey",
+    helpText: "Get an API key from Google AI Studio",
+    payloadKey: "google_generative_ai_api_key",
+  },
+  ollama: {
+    label: "Ollama",
+    placeholder: "http://localhost:11434",
+    helpUrl: "https://ollama.ai",
+    helpText: "Get Ollama",
+    payloadKey: "ollama_base_url",
+    usesBaseUrlOnly: true,
+    defaultBaseUrl: "http://localhost:11434",
+  },
+};
+
+/**
+ * Build the API payload for saving provider credentials.
+ * @param {string} provider - Provider ID (openai, anthropic, google, ollama)
+ * @param {string} key - API key value
+ * @param {string} baseUrl - Optional base URL
+ * @returns {Object} Payload for PATCH /api/workspace
+ */
+function buildProviderPayload(provider, key, baseUrl) {
+  const config = PROVIDER_CONFIG[provider];
+  if (!config) return {};
+
+  const payload = {};
+  if (config.usesBaseUrlOnly) {
+    payload[config.payloadKey] = baseUrl?.trim() || config.defaultBaseUrl;
+  } else {
+    payload[config.payloadKey] = key.trim();
+    if (config.baseUrlKey && baseUrl?.trim()) {
+      payload[config.baseUrlKey] = baseUrl.trim();
+    }
+  }
+  return payload;
+}
+
 // Main chat interface
 function ChatContent({ initialChatId }) {
   const router = useRouter();
@@ -1561,7 +1621,9 @@ function ChatContent({ initialChatId }) {
 
   // API key inline setup
   const [apiKey, setApiKey] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [savingKey, setSavingKey] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState("openai");
 
   // Credential management
   const [credentialStatus, setCredentialStatus] = useState({}); // { sourceId: { has: boolean, label?: string, masked?: string } }
@@ -1741,23 +1803,29 @@ function ChatContent({ initialChatId }) {
   }, []);
 
   const handleSaveApiKey = async () => {
-    if (!apiKey.trim()) return;
+    const config = PROVIDER_CONFIG[selectedProvider];
+    const isValid = config.usesBaseUrlOnly ? customBaseUrl.trim() : apiKey.trim();
+    if (!isValid) return;
+
     setSavingKey(true);
     try {
+      const payload = buildProviderPayload(selectedProvider, apiKey, customBaseUrl);
       const res = await fetch("/api/workspace", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openai_api_key: apiKey.trim() }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         clearFetchCache((key) => key.includes("/api/workspace"));
         await loadWorkspace();
         setApiKey("");
+        setCustomBaseUrl("");
         toast.success("API key saved");
       } else {
         toast.error("Failed to save API key");
       }
-    } catch {
+    } catch (err) {
+      console.error("Failed to save API key:", err);
       toast.error("Failed to save API key");
     } finally {
       setSavingKey(false);
@@ -1970,39 +2038,86 @@ function ChatContent({ initialChatId }) {
             <div className="max-w-3xl mx-auto">
               <div className="text-center py-12">
                 {!workspace?.has_api_key ? (
-                  <div className="max-w-sm mx-auto space-y-4">
+                  <div className="max-w-md mx-auto space-y-4">
                     <div className="w-12 h-12 mx-auto rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
                       <Key className="w-6 h-6 text-cyan-400" />
                     </div>
-                    <h2 className="text-xl font-bold">Add your OpenAI API key</h2>
+                    <h2 className="text-xl font-bold">Add your LLM API key</h2>
                     <p className="text-white/40 text-sm">
-                      Paste your API key to start chatting with your APIs
+                      Choose a provider and paste your API key to start chatting
                     </p>
-                    <div className="flex gap-2">
-                      <Input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder="sk-..."
-                        className="bg-white/5 border-white/10 flex-1"
-                        onKeyDown={(e) => e.key === "Enter" && handleSaveApiKey()}
-                      />
-                      <Button
-                        onClick={handleSaveApiKey}
-                        disabled={!apiKey.trim() || savingKey}
-                        className="bg-cyan-500 hover:bg-cyan-400 text-black"
-                      >
-                        {savingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                      </Button>
+
+                    {/* Provider tabs */}
+                    <div className="flex gap-1 p-1 bg-white/5 rounded-lg">
+                      {Object.entries(PROVIDER_CONFIG).map(([id, config]) => (
+                        <button
+                          key={id}
+                          onClick={() => {
+                            setSelectedProvider(id);
+                            setApiKey("");
+                            setCustomBaseUrl("");
+                          }}
+                          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                            selectedProvider === id
+                              ? "bg-cyan-500/20 text-cyan-300"
+                              : "text-white/50 hover:text-white/70 hover:bg-white/5"
+                          }`}
+                        >
+                          {config.label}
+                        </button>
+                      ))}
                     </div>
-                    <p className="text-xs text-white/30">
-                      <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline hover:text-white/50">
-                        Get an API key from OpenAI
-                      </a>
-                      {" · "}
-                      <Link href="/settings" className="underline hover:text-white/50">
-                        More providers
-                      </Link>
+
+                    {/* Provider-specific inputs (config-driven) */}
+                    {(() => {
+                      const config = PROVIDER_CONFIG[selectedProvider];
+                      const inputValue = config.usesBaseUrlOnly ? customBaseUrl : apiKey;
+                      const setInputValue = config.usesBaseUrlOnly ? setCustomBaseUrl : setApiKey;
+                      const inputType = config.usesBaseUrlOnly ? "text" : "password";
+                      const isDisabled = config.usesBaseUrlOnly ? savingKey : (!inputValue.trim() || savingKey);
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex gap-2">
+                            <Input
+                              type={inputType}
+                              value={inputValue}
+                              onChange={(e) => setInputValue(e.target.value)}
+                              placeholder={config.placeholder}
+                              className="bg-white/5 border-white/10 flex-1"
+                              onKeyDown={(e) => e.key === "Enter" && handleSaveApiKey()}
+                            />
+                            <Button
+                              onClick={handleSaveApiKey}
+                              disabled={isDisabled}
+                              className="bg-cyan-500 hover:bg-cyan-400 text-black"
+                            >
+                              {savingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            </Button>
+                          </div>
+                          {config.showBaseUrl && (
+                            <Input
+                              type="text"
+                              value={customBaseUrl}
+                              onChange={(e) => setCustomBaseUrl(e.target.value)}
+                              placeholder={config.baseUrlPlaceholder}
+                              className="bg-white/5 border-white/10 text-sm"
+                            />
+                          )}
+                          <p className="text-xs text-white/30">
+                            {selectedProvider === "ollama" && (
+                              <>Run <code className="bg-white/10 px-1 rounded">ollama serve</code> locally. </>
+                            )}
+                            <a href={config.helpUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-white/50">
+                              {config.helpText}
+                            </a>
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    <p className="text-xs text-white/20 pt-2">
+                      Keys are stored encrypted in your organization settings
                     </p>
                   </div>
                 ) : sources.length === 0 ? (

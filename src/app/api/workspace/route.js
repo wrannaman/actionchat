@@ -177,6 +177,7 @@ export async function PATCH(request) {
     const hasApiKey = !!(
       newSettings.openai_api_key ||
       newSettings.anthropic_api_key ||
+      newSettings.google_generative_ai_api_key ||
       newSettings.ollama_base_url
     );
 

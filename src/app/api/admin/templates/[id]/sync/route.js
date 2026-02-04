@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
-import { parseOpenApiSpec, embedTool } from '@/lib/tools';
+import { parseOpenApiSpec, embedTool, getEmbeddingDimension } from '@/lib/tools';
 import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
 
 export const dynamic = 'force-dynamic';
@@ -183,37 +183,44 @@ async function syncOpenApiTemplate(serviceClient, template) {
     }
   }
 
+  // Batch deactivate tools no longer in spec (single query instead of N+1)
   if (removedOpIds.length > 0) {
-    for (const opId of removedOpIds) {
-      await serviceClient
-        .from('template_tools')
-        .update({ is_active: false })
-        .eq('template_id', template.id)
-        .eq('operation_id', opId);
-    }
+    await serviceClient
+      .from('template_tools')
+      .update({ is_active: false })
+      .eq('template_id', template.id)
+      .in('operation_id', removedOpIds);
     removedCount = removedOpIds.length;
   }
 
-  // Generate embeddings for new/updated tools
-  console.log('[TEMPLATE SYNC] Generating embeddings for', toolsToEmbed.length, 'tools...');
-  for (const tool of toolsToEmbed) {
-    try {
-      const embedding = await embedTool(tool);
-      await serviceClient
-        .from('template_tools')
-        .update({ embedding })
-        .eq('id', tool.id);
-      embeddedCount++;
+  // Generate embeddings for new/updated tools (parallel with concurrency limit)
+  const { column: embeddingColumn } = getEmbeddingDimension();
+  console.log('[TEMPLATE SYNC] Generating embeddings for', toolsToEmbed.length, 'tools using column:', embeddingColumn);
+  const CONCURRENCY = 10;
+  for (let i = 0; i < toolsToEmbed.length; i += CONCURRENCY) {
+    const batch = toolsToEmbed.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (tool) => {
+        try {
+          const embedding = await embedTool(tool);
+          await serviceClient
+            .from('template_tools')
+            .update({ [embeddingColumn]: embedding })
+            .eq('id', tool.id);
+          return true;
+        } catch (e) {
+          console.warn('[TEMPLATE SYNC] Failed to embed tool:', tool.name, e.message);
+          return false;
+        }
+      })
+    );
+    embeddedCount += results.filter(Boolean).length;
 
-      // Log progress every 50 tools
-      if (embeddedCount % 50 === 0) {
-        console.log('[TEMPLATE SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
-      }
-    } catch (e) {
-      console.warn('[TEMPLATE SYNC] Failed to embed tool:', tool.name, e.message);
+    // Log progress every 50 tools
+    if (embeddedCount % 50 === 0 || i + CONCURRENCY >= toolsToEmbed.length) {
+      console.log('[TEMPLATE SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
     }
   }
-  console.log('[TEMPLATE SYNC] Embedded', embeddedCount, '/', toolsToEmbed.length, 'tools');
 
   // Update template's spec_content if we fetched from URL
   if (!template.spec_content && specContent) {

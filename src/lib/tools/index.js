@@ -39,4 +39,6 @@ export {
   getEmbeddingCoverage,
   searchTemplateTools,
   getTemplateEmbeddingCoverage,
+  getEmbeddingDimension,
+  getEmbeddingConfig,
 } from './embeddings.js';

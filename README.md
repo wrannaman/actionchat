@@ -26,12 +26,12 @@ User: "Y"
 ```bash
 git clone https://github.com/wrannaman/actionchat.git
 cd actionchat
-cp env.example .env
+cp .env.example .env
 # Add your Supabase + LLM API keys to .env
 yarn install && yarn dev
 ```
 
-Open `http://localhost:3000`, paste an OpenAPI spec, and start chatting with your API.
+Open `http://localhost:3000`, add your API key, paste an OpenAPI spec, and start chatting with your API.
 
 ## How It Works
 
@@ -48,8 +48,36 @@ ActionChat is a **translation proxy** between natural language and your existing
 
 - **App:** Next.js + React + Tailwind (Shadcn/UI)
 - **Backend:** Supabase (PostgreSQL + Auth + RLS)
-- **LLM:** Agnostic — OpenAI (default), Anthropic, or Ollama (local)
+- **LLM:** Bring your own — OpenAI, Claude, Gemini, or Ollama (local)
 - **Deploy:** Docker Compose
+
+## LLM Providers
+
+ActionChat supports multiple LLM providers. Configure in the app UI or via environment variables:
+
+| Provider | Chat | Embeddings | Notes |
+|----------|------|------------|-------|
+| **OpenAI** | ✅ | ✅ | GPT-4o, GPT-4, etc. |
+| **Anthropic** | ✅ | ❌ | Claude 3.5 Sonnet, etc. |
+| **Google** | ✅ | ✅ | Gemini Pro, etc. |
+| **Ollama** | ✅ | ✅ | Local inference, any model |
+
+Users add their own API keys in the onboarding flow. Keys are stored encrypted in org settings.
+
+### Embeddings (Required)
+
+Embeddings power the RAG search that matches user intent to API endpoints — this is core to how ActionChat works. By default, uses OpenAI with your `OPENAI_API_KEY`. If using Claude/Anthropic for chat, you'll need to configure a separate embedding provider:
+
+```bash
+# Default: OpenAI (uses OPENAI_API_KEY)
+EMBEDDING_PROVIDER=openai
+
+# Or use Gemini / Ollama if you don't have OpenAI
+EMBEDDING_PROVIDER=gemini
+GEMINI_API_KEY=your-key
+```
+
+See [docs/embeddings.md](docs/embeddings.md) for full configuration.
 
 ## Development
 
@@ -58,7 +86,7 @@ ActionChat is a **translation proxy** between natural language and your existing
 yarn install
 
 # Copy environment template
-cp env.example .env
+cp .env.example .env
 # Edit .env with your Supabase credentials
 
 # Run development server
@@ -73,7 +101,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=xxx
 SUPABASE_SERVICE_ROLE=xxx
 ```
 
-See `env.example` for the full configuration.
+See `.env.example` for the full configuration including LLM providers, embeddings, and S3 storage.
 
 ### Commands
 
@@ -89,6 +117,11 @@ yarn test      # Jest with coverage
 - **Scope** — A grouping of API capabilities from an `openapi.json` (e.g., "Stripe Production", "Internal Admin API")
 - **Agent** — A configured bot instance with system prompt, model, and permissions (read-only vs read-write)
 - **Tool** — A single API endpoint with `name`, `method`, `parameters`, and `risk_level` (Safe vs High)
+
+## Documentation
+
+- [Embeddings Configuration](docs/embeddings.md) — Multi-provider embedding setup
+- [Product Spec](docs/spec.md) — Full product specification
 
 ## Security
 
