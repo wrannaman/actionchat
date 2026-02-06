@@ -310,7 +310,11 @@ function StoredToolCallsMessage({ parts, storedToolCalls }) {
 
   // Filter to only tool calls with results for display
   // We check that result exists and has a body (even if body is empty/null, we want to show it)
-  const displayableToolCalls = storedToolCalls.filter(tc => tc.result && 'body' in tc.result);
+  // Also hide internal system tools (search_tools etc.) from the user
+  const HIDDEN_TOOLS = ['search_tools'];
+  const displayableToolCalls = storedToolCalls.filter(tc =>
+    tc.result && 'body' in tc.result && !HIDDEN_TOOLS.includes(tc.tool_name)
+  );
 
 
   return (
@@ -395,6 +399,12 @@ function AssistantPart({ part, onApprove, onReject }) {
   // Tool invocations (dynamic tools from our OpenAPI converter)
   if (part.type === "dynamic-tool" || part.type?.startsWith("tool-")) {
     const toolName = part.toolName || part.type?.replace("tool-", "") || "unknown";
+
+    // Hide internal system tools from the UI (search_tools is AI self-discovery, not user-facing)
+    const HIDDEN_TOOLS = ['search_tools'];
+    if (HIDDEN_TOOLS.includes(toolName)) {
+      return null;
+    }
 
     // Approval requested — show [Y/n] confirmation
     if (part.state === "approval-requested") {
