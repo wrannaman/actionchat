@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/utils/supabase/server';
+import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
 import { parseOpenApiSpec, embedTool, getEmbeddingDimension } from '@/lib/tools';
 import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
@@ -253,13 +253,159 @@ export async function POST(request, { params }) {
         });
       }
 
-      // Template has no tools - inform user to sync the template
+      // Template has no tools - auto-sync the template
+      console.log('[SYNC] Template has no tools, auto-syncing template:', source.template_id);
+
+      const serviceClient = createServiceClient();
+
+      // Get the template
+      const { data: template, error: templateError } = await serviceClient
+        .from('source_templates')
+        .select('*')
+        .eq('id', source.template_id)
+        .single();
+
+      if (templateError || !template) {
+        return NextResponse.json({
+          ok: false,
+          error: 'Template not found',
+          message: `Could not find template ${source.template_id}`,
+        }, { status: 404 });
+      }
+
+      if (template.source_type !== 'openapi') {
+        return NextResponse.json({
+          ok: false,
+          error: 'Template type not supported for auto-sync',
+          message: 'MCP templates load tools at runtime - no sync needed.',
+        }, { status: 400 });
+      }
+
+      // Get spec content
+      let specContent = template.spec_content;
+      if (!specContent && template.spec_url) {
+        try {
+          const fetchRes = await fetch(template.spec_url, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(30000),
+          });
+          if (!fetchRes.ok) {
+            return NextResponse.json({
+              ok: false,
+              error: `Failed to fetch template spec from URL: ${fetchRes.status}`,
+            }, { status: 400 });
+          }
+          specContent = await fetchRes.json();
+        } catch (fetchError) {
+          return NextResponse.json({
+            ok: false,
+            error: 'Failed to fetch template spec',
+            details: fetchError.message,
+          }, { status: 400 });
+        }
+      }
+
+      if (!specContent) {
+        return NextResponse.json({
+          ok: false,
+          error: 'Template has no spec content',
+        }, { status: 400 });
+      }
+
+      // Parse spec
+      let parsed;
+      try {
+        parsed = parseOpenApiSpec(specContent);
+      } catch (parseError) {
+        return NextResponse.json({
+          ok: false,
+          error: 'Failed to parse template spec',
+          details: parseError.message,
+        }, { status: 400 });
+      }
+
+      console.log('[SYNC] Parsed', parsed.tools.length, 'tools from template:', template.name);
+
+      // Insert tools into template_tools
+      const toolsToInsert = parsed.tools.map(tool => ({
+        template_id: template.id,
+        operation_id: tool.operation_id,
+        name: tool.name,
+        description: tool.description,
+        method: tool.method,
+        path: tool.path,
+        parameters: tool.parameters || {},
+        request_body: tool.request_body || null,
+        risk_level: tool.risk_level,
+        requires_confirmation: tool.requires_confirmation,
+        tags: tool.tags || [],
+        is_active: true,
+      }));
+
+      const { data: insertedTools, error: insertError } = await serviceClient
+        .from('template_tools')
+        .insert(toolsToInsert)
+        .select('id, name, description, method, path');
+
+      if (insertError) {
+        console.error('[SYNC] Failed to insert template tools:', insertError);
+        return NextResponse.json({
+          ok: false,
+          error: 'Failed to sync template tools',
+          details: insertError.message,
+        }, { status: 500 });
+      }
+
+      const insertedCount = insertedTools?.length || 0;
+      console.log('[SYNC] Inserted', insertedCount, 'template tools');
+
+      // Generate embeddings (parallel with concurrency limit)
+      const { column: embeddingColumn } = getEmbeddingDimension();
+      console.log('[SYNC] Generating embeddings using column:', embeddingColumn);
+
+      let embeddedCount = 0;
+      const CONCURRENCY = 10;
+      for (let i = 0; i < insertedTools.length; i += CONCURRENCY) {
+        const batch = insertedTools.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (tool) => {
+            try {
+              const embedding = await embedTool(tool);
+              await serviceClient
+                .from('template_tools')
+                .update({ [embeddingColumn]: embedding })
+                .eq('id', tool.id);
+              return true;
+            } catch (e) {
+              console.warn('[SYNC] Failed to embed tool:', tool.name, e.message);
+              return false;
+            }
+          })
+        );
+        embeddedCount += results.filter(Boolean).length;
+
+        // Log progress every 50 tools
+        if (embeddedCount % 50 === 0 || i + CONCURRENCY >= insertedTools.length) {
+          console.log('[SYNC] Embedded', embeddedCount, '/', insertedTools.length, 'tools');
+        }
+      }
+
+      // Cache spec content if we fetched from URL
+      if (!template.spec_content && specContent) {
+        await serviceClient
+          .from('source_templates')
+          .update({ spec_content: specContent })
+          .eq('id', template.id);
+      }
+
       return NextResponse.json({
-        ok: false,
-        error: 'Template tools not synced',
-        message: 'This source uses a template that has not been synced yet. Please sync the template first via POST /api/admin/templates/{template_id}/sync',
-        template_id: source.template_id,
-      }, { status: 400 });
+        ok: true,
+        changed: true,
+        message: `Auto-synced ${insertedCount} tools from ${template.name} template`,
+        tool_count: insertedCount,
+        embedded: embeddedCount,
+        uses_template: true,
+      });
     }
 
     // Handle MCP sources (custom, non-template)

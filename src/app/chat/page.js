@@ -702,6 +702,9 @@ function ChatInterface({
   // Save as Routine dialog
   const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
 
+  // Track active routine (when a saved routine was used for this response)
+  const [activeRoutine, setActiveRoutine] = useState(null);
+
   // Store toolCalls data separately from useChat (useChat may strip custom properties)
   // Map of message ID -> toolCalls array
   const [storedToolCalls, setStoredToolCalls] = useState(() => {
@@ -765,13 +768,36 @@ function ChatInterface({
     bodyRef.current = { agentId, chatId: currentChatId, enabledSourceIds: enabledSources.map(s => s.id) };
   }, [agentId, currentChatId, enabledSources]);
 
+  // Custom fetch wrapper to capture routine headers
+  const customFetch = useCallback(async (url, options) => {
+    const response = await fetch(url, options);
+
+    // Capture routine headers from the response
+    const routineId = response.headers.get('X-Routine-Id');
+    const routineName = response.headers.get('X-Routine-Name');
+    const routineConfidence = response.headers.get('X-Routine-Confidence');
+
+    if (routineId && routineName) {
+      setActiveRoutine({
+        id: routineId,
+        name: routineName,
+        confidence: parseInt(routineConfidence || '50', 10),
+      });
+    } else {
+      setActiveRoutine(null);
+    }
+
+    return response;
+  }, []);
+
   // Transport that always includes body params (needed for addToolApprovalResponse)
   const transport = useMemo(
     () => new DefaultChatTransport({
       api: "/api/chat",
       body: () => bodyRef.current,
+      fetch: customFetch,
     }),
-    []
+    [customFetch]
   );
 
   const { messages, status, sendMessage, setMessages, addToolApprovalResponse, stop } = useChat({
@@ -1271,6 +1297,63 @@ function ChatInterface({
                 <p className="text-white/50 mt-2">Files will be uploaded and inserted as markdown links</p>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Routine indicator */}
+      {activeRoutine && (
+        <div className="px-4 py-2 bg-cyan-500/10 border-b border-cyan-500/20">
+          <div className="max-w-5xl mx-auto flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              <span className="text-cyan-300">Using routine: <strong>{activeRoutine.name}</strong></span>
+              <span className="text-cyan-400/60 text-xs">({activeRoutine.confidence}% confidence)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  // Record positive feedback
+                  try {
+                    await fetch(`/api/routines/${activeRoutine.id}/feedback`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ outcome: 'success' }),
+                    });
+                    toast.success('Feedback recorded');
+                  } catch (err) {
+                    console.error('[FEEDBACK] Failed to record success:', err);
+                  }
+                  setActiveRoutine(null);
+                }}
+                className="px-2 py-1 text-xs text-green-400 hover:bg-green-500/20 rounded transition-colors"
+                title="This worked well"
+              >
+                <Check className="w-3.5 h-3.5 inline mr-1" />
+                Worked
+              </button>
+              <button
+                onClick={async () => {
+                  // Record negative feedback
+                  try {
+                    await fetch(`/api/routines/${activeRoutine.id}/feedback`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ outcome: 'failure' }),
+                    });
+                    toast.info('Feedback recorded - routine will be less likely to match');
+                  } catch (err) {
+                    console.error('[FEEDBACK] Failed to record failure:', err);
+                  }
+                  setActiveRoutine(null);
+                }}
+                className="px-2 py-1 text-xs text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                title="This didn't help"
+              >
+                <X className="w-3.5 h-3.5 inline mr-1" />
+                Wrong
+              </button>
+            </div>
           </div>
         </div>
       )}

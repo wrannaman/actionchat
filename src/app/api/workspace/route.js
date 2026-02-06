@@ -80,19 +80,61 @@ export async function GET() {
     if (sourceIds.length > 0) {
       const { data: sourcesData } = await supabase
         .from('api_sources')
-        .select('id, name, description, base_url, source_type, auth_type, is_active')
+        .select('id, name, description, base_url, source_type, auth_type, is_active, template_id')
         .in('id', sourceIds);
 
-      // Get tool counts
-      const { data: tools } = await supabase
-        .from('tools')
-        .select('source_id')
-        .in('source_id', sourceIds)
-        .eq('is_active', true);
+      // Separate template-based and custom sources
+      const templateSources = (sourcesData || []).filter(s => s.template_id);
+      const customSources = (sourcesData || []).filter(s => !s.template_id);
 
       const toolCounts = {};
-      for (const t of (tools || [])) {
-        toolCounts[t.source_id] = (toolCounts[t.source_id] || 0) + 1;
+
+      // Build parallel queries for tool counts
+      const queries = [];
+
+      if (customSources.length > 0) {
+        const customSourceIds = customSources.map(s => s.id);
+        queries.push(
+          supabase
+            .from('tools')
+            .select('source_id')
+            .in('source_id', customSourceIds)
+            .eq('is_active', true)
+            .then(({ data }) => ({ type: 'custom', data }))
+        );
+      }
+
+      if (templateSources.length > 0) {
+        const templateIds = [...new Set(templateSources.map(s => s.template_id))];
+        queries.push(
+          supabase
+            .from('template_tools')
+            .select('template_id')
+            .in('template_id', templateIds)
+            .eq('is_active', true)
+            .then(({ data }) => ({ type: 'template', data }))
+        );
+      }
+
+      // Execute queries in parallel
+      const results = await Promise.all(queries);
+
+      for (const result of results) {
+        if (result.type === 'custom') {
+          for (const t of (result.data || [])) {
+            toolCounts[t.source_id] = (toolCounts[t.source_id] || 0) + 1;
+          }
+        } else if (result.type === 'template') {
+          // Count tools per template
+          const templateToolCounts = {};
+          for (const t of (result.data || [])) {
+            templateToolCounts[t.template_id] = (templateToolCounts[t.template_id] || 0) + 1;
+          }
+          // Map template counts to sources
+          for (const s of templateSources) {
+            toolCounts[s.id] = templateToolCounts[s.template_id] || 0;
+          }
+        }
       }
 
       sources = (sourcesData || []).map(s => ({

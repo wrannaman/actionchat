@@ -1,27 +1,21 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { getUserOrgId } from '@/utils/supabase/server';
-import { parseOpenApiSpec } from '@/lib/tools';
-import { convertTools as convertMcpTools, listMCPTools, closeMCPClient } from '@/lib/mcp';
 import { cookies } from 'next/headers';
 import { getPermissions, requireAdmin } from '@/utils/permissions';
-import integrationsData from '../../../../../../docs/integrations.json';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/templates/[slug]/install — Install a template as a new source
  *
+ * Template-based sources use global template_tools (no per-org tools table).
+ * This endpoint just creates the api_sources entry and stores user credentials.
+ *
  * Body: {
- *   credentials: {
- *     // Depends on auth_type, e.g.:
- *     // For bearer: { token: "..." }
- *     // For api_key: { api_key: "...", header_name?: "..." }
- *     // For basic: { username: "...", password: "..." }
- *     // For MCP: { connection_string: "..." } or env vars
- *   },
- *   name?: string, // Override default name
- *   base_url?: string, // Override base URL (for templates with placeholders)
+ *   credentials: { ... },  // Auth credentials for the API
+ *   name?: string,         // Override source name
+ *   base_url?: string,     // Override base URL (for placeholders)
  * }
  */
 export async function POST(request, { params }) {
@@ -45,10 +39,33 @@ export async function POST(request, { params }) {
     }
 
     const { slug } = await params;
-    const template = integrationsData.integrations.find((i) => i.slug === slug);
 
-    if (!template) {
+    // Get template from database (not local JSON)
+    const { data: template, error: templateError } = await supabase
+      .from('source_templates')
+      .select('*')
+      .eq('slug', slug)
+      .single();
+
+    if (templateError || !template) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+    }
+
+    // Check if template tools are synced (for OpenAPI templates)
+    if (template.source_type === 'openapi' && !template.is_synced) {
+      const { count: toolCount } = await supabase
+        .from('template_tools')
+        .select('id', { count: 'exact', head: true })
+        .eq('template_id', template.id)
+        .eq('is_active', true);
+
+      if (!toolCount || toolCount === 0) {
+        return NextResponse.json({
+          error: 'Template not ready',
+          message: `The ${template.name} template has not been synced yet. Please contact your administrator to run: npm run sync-templates`,
+          template_id: template.id,
+        }, { status: 400 });
+      }
     }
 
     const body = await request.json();
@@ -63,110 +80,6 @@ export async function POST(request, { params }) {
     // Resolve the base URL (handle placeholders)
     const resolvedBaseUrl = resolveBaseUrl(template.base_url || base_url, body);
 
-    let specContent = null;
-    let parsedTools = [];
-    let specHash = null;
-
-    if (template.type === 'openapi') {
-      // Fetch and parse OpenAPI spec
-      if (template.spec_url) {
-        try {
-          const fetchRes = await fetch(template.spec_url, {
-            headers: { Accept: 'application/json, application/yaml' },
-            signal: AbortSignal.timeout(30000),
-          });
-
-          if (!fetchRes.ok) {
-            return NextResponse.json(
-              {
-                error: `Failed to fetch spec from ${template.spec_url}: ${fetchRes.status}`,
-              },
-              { status: 400 }
-            );
-          }
-
-          const contentType = fetchRes.headers.get('content-type') || '';
-          if (contentType.includes('yaml') || template.spec_url.endsWith('.yaml')) {
-            // Would need yaml parser for YAML specs
-            const text = await fetchRes.text();
-            // For now, only handle JSON
-            try {
-              specContent = JSON.parse(text);
-            } catch {
-              return NextResponse.json(
-                { error: 'YAML specs not yet supported. Please use JSON spec.' },
-                { status: 400 }
-              );
-            }
-          } else {
-            specContent = await fetchRes.json();
-          }
-        } catch (fetchError) {
-          return NextResponse.json(
-            { error: 'Failed to fetch spec', details: fetchError.message },
-            { status: 400 }
-          );
-        }
-      }
-
-      // Parse the spec
-      if (specContent) {
-        try {
-          const parsed = parseOpenApiSpec(specContent);
-          parsedTools = parsed.tools;
-          specHash = parsed.source_meta.spec_hash;
-        } catch (parseError) {
-          return NextResponse.json(
-            { error: 'Failed to parse OpenAPI spec', details: parseError.message },
-            { status: 400 }
-          );
-        }
-      }
-    } else if (template.type === 'mcp') {
-      // Only HTTP MCP is supported (stdio doesn't scale for multi-tenant)
-      const isHttpMcp = template.mcp_transport === 'http' || template.mcp_server_url;
-
-      if (!isHttpMcp) {
-        // stdio MCP templates are not supported
-        return NextResponse.json(
-          {
-            error: 'This integration requires local process spawning (stdio MCP) which is not supported.',
-            details: `The ${template.name} integration uses stdio MCP transport which cannot run in a multi-tenant environment. Only HTTP MCP integrations (like Stripe, Linear, Notion) are supported.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      // HTTP MCP - build a temporary source object for the client
-      const tempSource = {
-        id: `temp-${slug}`,
-        name: template.name,
-        mcp_server_uri: template.mcp_server_url,
-      };
-
-      // Build credentials object for the MCP client
-      let mcpCredentials = null;
-      if (template.auth_type === 'bearer') {
-        const credField = template.auth_config?.credential_field || 'api_key';
-        mcpCredentials = { token: credentials[credField] };
-      }
-
-      try {
-        // Temporarily connect to list tools
-        const mcpTools = await listMCPTools(tempSource, mcpCredentials);
-        parsedTools = convertMcpTools(mcpTools, null); // source_id will be set after insert
-
-        // Disconnect temp connection
-        await closeMCPClient(tempSource.id);
-      } catch (mcpError) {
-        console.error('[TEMPLATES] MCP connection error:', mcpError);
-        return NextResponse.json(
-          { error: 'Failed to connect to MCP server', details: mcpError.message },
-          { status: 400 }
-        );
-      }
-    }
-
     // Format credentials for storage
     const formattedCredentials = formatCredentials(template, credentials);
 
@@ -174,28 +87,66 @@ export async function POST(request, { params }) {
     let sourceMcpUri = null;
     let sourceMcpTransport = null;
 
-    if (template.type === 'mcp') {
+    if (template.source_type === 'mcp') {
+      // Only HTTP MCP is supported
+      if (!template.mcp_server_url) {
+        return NextResponse.json({
+          error: 'MCP integration not available',
+          message: 'This integration requires a remote MCP server URL which is not configured.',
+        }, { status: 400 });
+      }
       sourceMcpUri = template.mcp_server_url;
       sourceMcpTransport = 'http';
     }
 
-    // Create the source
+    // Check if user already has this source
+    const { data: existingSource } = await supabase
+      .from('api_sources')
+      .select('id')
+      .eq('org_id', orgId)
+      .eq('template_id', template.id)
+      .single();
+
+    if (existingSource) {
+      // Update credentials instead of creating duplicate
+      await supabase
+        .from('user_api_credentials')
+        .upsert({
+          user_id: user.id,
+          source_id: existingSource.id,
+          label: 'Default',
+          credentials: formattedCredentials,
+          is_active: true,
+        }, { onConflict: 'user_id,source_id,label' });
+
+      // Get tool count from template_tools
+      const { count: toolCount } = await supabase
+        .from('template_tools')
+        .select('id', { count: 'exact', head: true })
+        .eq('template_id', template.id)
+        .eq('is_active', true);
+
+      return NextResponse.json({
+        ok: true,
+        source: { ...existingSource, tool_count: toolCount || 0 },
+        message: `${template.name} credentials updated`,
+      });
+    }
+
+    // Create the source (links to template via template_id)
     const sourceData = {
       org_id: orgId,
       template_id: template.id,
       name: name || template.name,
       description: template.description,
-      source_type: template.type,
-      base_url: resolvedBaseUrl || '',
-      spec_content: specContent,
+      source_type: template.source_type,
+      base_url: resolvedBaseUrl || template.base_url || '',
       spec_url: template.spec_url || null,
-      spec_hash: specHash,
       auth_type: template.auth_type,
       auth_config: template.auth_config || {},
       mcp_server_uri: sourceMcpUri,
       mcp_transport: sourceMcpTransport,
-      mcp_env: null,
-      last_synced_at: new Date().toISOString(),
+      is_active: true,
     };
 
     const { data: source, error: sourceError } = await supabase
@@ -206,56 +157,17 @@ export async function POST(request, { params }) {
 
     if (sourceError) throw sourceError;
 
-    // Save user credentials (deactivate others first, then add this one as active)
-    await supabase
-      .from('user_api_credentials')
-      .update({ is_active: false })
-      .eq('user_id', user.id)
-      .eq('source_id', source.id);
-
-    const { error: credError } = await supabase.from('user_api_credentials').upsert(
-      {
-        user_id: user.id,
-        source_id: source.id,
-        label: 'Default',
-        credentials: formattedCredentials,
-        is_active: true,
-      },
-      { onConflict: 'user_id,source_id,label' }
-    );
+    // Save user credentials
+    const { error: credError } = await supabase.from('user_api_credentials').insert({
+      user_id: user.id,
+      source_id: source.id,
+      label: 'Default',
+      credentials: formattedCredentials,
+      is_active: true,
+    });
 
     if (credError) {
       console.error('[TEMPLATES] Credentials save error:', credError);
-    }
-
-    // Insert tools
-    let toolCount = 0;
-    if (parsedTools.length > 0) {
-      const toolRows = parsedTools.map((t) => ({
-        source_id: source.id,
-        operation_id: t.operation_id,
-        name: t.name,
-        description: t.description,
-        method: t.method,
-        path: t.path,
-        parameters: t.parameters || {},
-        request_body: t.request_body || null,
-        mcp_tool_name: t.mcp_tool_name || null,
-        risk_level: t.risk_level,
-        requires_confirmation: t.requires_confirmation,
-        tags: t.tags || [],
-      }));
-
-      const { data: insertedTools, error: toolsError } = await supabase
-        .from('tools')
-        .insert(toolRows)
-        .select('id');
-
-      if (toolsError) {
-        console.error('[TEMPLATES] Tools insert error:', toolsError);
-      } else {
-        toolCount = insertedTools?.length || 0;
-      }
     }
 
     // Link source to user's workspace agent
@@ -266,34 +178,39 @@ export async function POST(request, { params }) {
       .eq('name', '__workspace__')
       .single();
 
-    console.log('[TEMPLATES] Looking for workspace agent in org:', orgId);
-    console.log('[TEMPLATES] Found agent:', agent?.id, '| Error:', agentError?.message);
-
-    if (agent) {
-      const { error: linkError } = await supabase.from('agent_sources').upsert(
-        {
-          agent_id: agent.id,
-          source_id: source.id,
-          permission: 'read_write',
-        },
-        { onConflict: 'agent_id,source_id' }
-      );
-      console.log('[TEMPLATES] Linked source to agent:', linkError ? linkError.message : 'OK');
-    } else {
-      console.error('[TEMPLATES] No workspace agent found! Source will not be usable.');
+    if (agentError) {
+      console.error('[TEMPLATES] Workspace agent lookup error:', agentError);
     }
 
-    return NextResponse.json(
-      {
-        ok: true,
-        source: {
-          ...source,
-          tool_count: toolCount,
-        },
-        message: `${template.name} connected — ${toolCount} endpoints available`,
+    if (agent) {
+      const { error: linkError } = await supabase.from('agent_sources').upsert({
+        agent_id: agent.id,
+        source_id: source.id,
+        permission: 'read_write',
+      }, { onConflict: 'agent_id,source_id' });
+
+      if (linkError) {
+        console.error('[TEMPLATES] Agent-source link error:', linkError);
+      }
+    } else {
+      console.warn('[TEMPLATES] No workspace agent found for org:', orgId);
+    }
+
+    // Get tool count from template_tools (not per-org tools)
+    const { count: toolCount } = await supabase
+      .from('template_tools')
+      .select('id', { count: 'exact', head: true })
+      .eq('template_id', template.id)
+      .eq('is_active', true);
+
+    return NextResponse.json({
+      ok: true,
+      source: {
+        ...source,
+        tool_count: toolCount || 0,
       },
-      { status: 201 }
-    );
+      message: `${template.name} connected — ${toolCount || 0} endpoints available`,
+    }, { status: 201 });
   } catch (error) {
     console.error('[TEMPLATES] Install Error:', error);
     return NextResponse.json(
@@ -311,7 +228,6 @@ function validateCredentials(template, credentials) {
 
   switch (template.auth_type) {
     case 'bearer': {
-      // Support both 'token' and custom credential_field (e.g., 'api_key' for Stripe)
       const credField = authConfig.credential_field || 'token';
       if (!credentials[credField]) {
         return `${authConfig.credential_label || 'Token'} is required`;
@@ -331,23 +247,15 @@ function validateCredentials(template, credentials) {
       }
       break;
 
-    case 'header':
-      if (authConfig.credential_fields) {
-        for (const field of authConfig.credential_fields) {
-          if (!credentials[field]) {
-            return `${field} is required`;
-          }
-        }
+    case 'oauth':
+      // OAuth templates need a token from the OAuth flow
+      if (!credentials.access_token && !credentials.token) {
+        return 'OAuth authorization required';
       }
       break;
 
     case 'none':
-      // Check for env var requirements (e.g., MCP connection strings)
-      if (authConfig.env_var && authConfig.credential_field) {
-        if (!credentials[authConfig.credential_field]) {
-          return `${authConfig.credential_label || authConfig.credential_field} is required`;
-        }
-      }
+      // No credentials required
       break;
   }
 
@@ -362,11 +270,8 @@ function formatCredentials(template, credentials) {
 
   switch (template.auth_type) {
     case 'bearer': {
-      // Support both 'token' and custom credential_field
       const credField = authConfig.credential_field || 'token';
-      return {
-        token: credentials[credField],
-      };
+      return { token: credentials[credField] };
     }
 
     case 'api_key':
@@ -381,18 +286,13 @@ function formatCredentials(template, credentials) {
         password: credentials.password || '',
       };
 
-    case 'header':
-      return credentials;
+    case 'oauth':
+      return {
+        access_token: credentials.access_token || credentials.token,
+        refresh_token: credentials.refresh_token,
+      };
 
     case 'none':
-      // For MCP, store env vars
-      if (authConfig.env_var && authConfig.credential_field) {
-        return {
-          env_vars: {
-            [authConfig.env_var]: credentials[authConfig.credential_field],
-          },
-        };
-      }
       return {};
 
     default:
@@ -407,8 +307,6 @@ function resolveBaseUrl(baseUrl, body) {
   if (!baseUrl) return '';
 
   let resolved = baseUrl;
-
-  // Common placeholders
   const placeholders = ['subdomain', 'project_ref', 'store', 'tenant', 'org', 'domain'];
 
   for (const placeholder of placeholders) {

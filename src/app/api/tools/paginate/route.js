@@ -42,8 +42,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'toolId is required' }, { status: 400 });
     }
 
-    // Fetch the tool with source details
-    const { data: tool, error: toolError } = await supabase
+    // Try to fetch from tools table first (custom sources)
+    let tool = null;
+    let source = null;
+
+    const { data: customTool, error: customToolError } = await supabase
       .from('tools')
       .select(`
         *,
@@ -55,12 +58,48 @@ export async function POST(request) {
       .eq('id', toolId)
       .single();
 
-    if (toolError || !tool) {
-      return NextResponse.json({ error: 'Tool not found' }, { status: 404 });
+    if (customTool) {
+      tool = customTool;
+      source = customTool.api_sources;
+    } else {
+      // Try template_tools table (template-based sources)
+      const { data: templateTool, error: templateToolError } = await supabase
+        .from('template_tools')
+        .select('*')
+        .eq('id', toolId)
+        .single();
+
+      if (templateTool) {
+        // Get the source that uses this template
+        const { data: templateSource } = await supabase
+          .from('api_sources')
+          .select('id, name, base_url, auth_type, auth_config, source_type, mcp_server_uri, mcp_transport, mcp_env')
+          .eq('template_id', templateTool.template_id)
+          .eq('org_id', orgId)
+          .single();
+
+        if (templateSource) {
+          // Convert template_tool to tool format
+          tool = {
+            id: templateTool.id,
+            name: templateTool.name,
+            description: templateTool.description,
+            method: templateTool.method,
+            path: templateTool.path,
+            parameters: templateTool.parameters,
+            request_body: templateTool.request_body,
+            risk_level: templateTool.risk_level,
+            requires_confirmation: templateTool.requires_confirmation,
+            mcp_tool_name: templateTool.mcp_tool_name,
+          };
+          source = templateSource;
+        }
+      }
     }
 
-    // Verify user has access to this source's org
-    const source = tool.api_sources;
+    if (!tool || !source) {
+      return NextResponse.json({ error: 'Tool not found' }, { status: 404 });
+    }
     const { data: sourceAccess } = await supabase
       .from('api_sources')
       .select('id')

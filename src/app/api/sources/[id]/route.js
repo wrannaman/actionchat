@@ -40,15 +40,32 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    // Get tools for this source
-    const { data: tools, error: toolsError } = await supabase
-      .from('tools')
-      .select('id, operation_id, name, description, method, path, parameters, request_body, risk_level, requires_confirmation, tags, is_active, created_at')
-      .eq('source_id', id)
-      .order('method')
-      .order('path');
+    // Get tools - use template_tools for template-based sources, tools for custom sources
+    let tools = [];
+    if (source.template_id) {
+      // Template-based source: query global template_tools
+      const { data, error: toolsError } = await supabase
+        .from('template_tools')
+        .select('id, operation_id, name, description, method, path, parameters, request_body, risk_level, requires_confirmation, tags, is_active, created_at')
+        .eq('template_id', source.template_id)
+        .eq('is_active', true)
+        .order('method')
+        .order('path');
 
-    if (toolsError) throw toolsError;
+      if (toolsError) throw toolsError;
+      tools = data || [];
+    } else {
+      // Custom source: query per-org tools
+      const { data, error: toolsError } = await supabase
+        .from('tools')
+        .select('id, operation_id, name, description, method, path, parameters, request_body, risk_level, requires_confirmation, tags, is_active, created_at')
+        .eq('source_id', id)
+        .order('method')
+        .order('path');
+
+      if (toolsError) throw toolsError;
+      tools = data || [];
+    }
 
     // Strip spec_content from response (can be large)
     const { spec_content, ...sourceMeta } = source;

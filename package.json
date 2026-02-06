@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
-    "test:legacy": "jest --coverage"
+    "test:legacy": "jest --coverage",
+    "sync-templates": "node scripts/sync-templates.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.29",

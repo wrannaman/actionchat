@@ -42,3 +42,9 @@ export {
   getEmbeddingDimension,
   getEmbeddingConfig,
 } from './embeddings.js';
+
+// System Tools - Built-in tools for AI self-sufficiency
+export {
+  createSystemTools,
+  createSearchToolsTool,
+} from './system-tools.js';

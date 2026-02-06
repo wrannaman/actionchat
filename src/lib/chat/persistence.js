@@ -65,7 +65,7 @@ export async function saveConversation(supabase, {
             chat_id: chatId,
             role: 'user',
             content: userText || '',
-            metadata: attachments.length > 0 ? { attachments } : null,
+            metadata: attachments.length > 0 ? { attachments } : {},
           })
           .select('id')
           .single();
@@ -219,6 +219,8 @@ function sanitizeResult(result) {
       method: result._actionchat.method,
       url: result._actionchat.url,
       tool_name: result._actionchat.tool_name,
+      tool_id: result._actionchat.tool_id,
+      source_id: result._actionchat.source_id,
       duration_ms: result._actionchat.duration_ms,
     };
   }

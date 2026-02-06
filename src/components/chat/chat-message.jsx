@@ -3,9 +3,32 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronRight, Wrench, FileText, File as FileIcon } from "lucide-react";
+import { FileText, File as FileIcon } from "lucide-react";
+import { toast } from "sonner";
 import { ToolCallDisplay, GroupedToolCallDisplay } from "./tool-call-display";
 import { ConfirmationPrompt } from "./confirmation-prompt";
+
+// Clickable table cell that copies text content on click
+function CopyableTd({ children, node, ...props }) {
+  const handleCopy = async (e) => {
+    const text = e.currentTarget.textContent?.trim();
+    if (text) {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied!");
+    }
+  };
+
+  return (
+    <td {...props} onClick={handleCopy} className="cursor-pointer hover:bg-white/10 transition-colors">
+      {children}
+    </td>
+  );
+}
+
+// Custom markdown components with click-to-copy on table cells
+const markdownComponents = {
+  td: CopyableTd,
+};
 
 // Normalize message to always have parts array
 function normalizeParts(message) {
@@ -219,17 +242,6 @@ function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {
     p.type !== 'dynamic-tool'
   );
 
-  // Count total tool calls
-  const totalToolCalls = toolParts.reduce((count, part) => {
-    if (part.type === 'tool-group') {
-      return count + part.parts.length;
-    }
-    return count + 1;
-  }, 0);
-
-  // If we have both text AND tool results, collapse the tools
-  const shouldCollapse = hasText && hasToolResults && totalToolCalls > 0;
-
   return (
     <div className="w-full space-y-2">
       {/* Other parts (like reasoning) */}
@@ -242,35 +254,26 @@ function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {
         />
       ))}
 
-      {/* Tool calls - collapsible when there's also text */}
-      {shouldCollapse ? (
-        <CollapsibleToolCalls 
-          toolParts={toolParts} 
-          totalToolCalls={totalToolCalls}
-          onApprove={onApprove}
-          onReject={onReject}
-        />
-      ) : (
-        toolParts.map((part, i) => {
-          if (part.type === "tool-group") {
-            return (
-              <GroupedToolCallDisplay
-                key={`group-${i}-${part.toolName}`}
-                toolName={part.toolName}
-                parts={part.parts}
-              />
-            );
-          }
+      {/* Tool calls - always shown expanded */}
+      {toolParts.map((part, i) => {
+        if (part.type === "tool-group") {
           return (
-            <AssistantPart
-              key={part.toolCallId || part.id || `tool-${i}-${part.type}`}
-              part={part}
-              onApprove={onApprove}
-              onReject={onReject}
+            <GroupedToolCallDisplay
+              key={`group-${i}-${part.toolName}`}
+              toolName={part.toolName}
+              parts={part.parts}
             />
           );
-        })
-      )}
+        }
+        return (
+          <AssistantPart
+            key={part.toolCallId || part.id || `tool-${i}-${part.type}`}
+            part={part}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        );
+      })}
 
       {/* Text content - show prominently */}
       {textParts.map((part, i) => (
@@ -287,59 +290,6 @@ function AssistantMessage({ parts, storedToolCalls, onApprove, onReject }) {
         <p className="text-white/30 text-xs italic mt-2">
           ↑ API response above
         </p>
-      )}
-    </div>
-  );
-}
-
-// Collapsible tool calls component
-function CollapsibleToolCalls({ toolParts, totalToolCalls, onApprove, onReject }) {
-  const [expanded, setExpanded] = useState(false);
-
-  // Get unique tool names for summary
-  const toolNames = [...new Set(toolParts.map(p => 
-    p.type === 'tool-group' ? p.toolName : (p.toolName || p.type?.replace('tool-', ''))
-  ))];
-
-  return (
-    <div className="border border-white/10 rounded-lg bg-white/[0.02] overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-white/50 hover:text-white/70 hover:bg-white/5 transition-colors"
-      >
-        {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronRight className="w-3.5 h-3.5" />
-        )}
-        <Wrench className="w-3.5 h-3.5" />
-        <span>
-          {totalToolCalls} API call{totalToolCalls !== 1 ? 's' : ''}: {toolNames.join(', ')}
-        </span>
-      </button>
-      
-      {expanded && (
-        <div className="border-t border-white/10 p-2 space-y-2">
-          {toolParts.map((part, i) => {
-            if (part.type === "tool-group") {
-              return (
-                <GroupedToolCallDisplay
-                  key={`group-${i}-${part.toolName}`}
-                  toolName={part.toolName}
-                  parts={part.parts}
-                />
-              );
-            }
-            return (
-              <AssistantPart
-                key={part.toolCallId || part.id || `tool-${i}-${part.type}`}
-                part={part}
-                onApprove={onApprove}
-                onReject={onReject}
-              />
-            );
-          })}
-        </div>
       )}
     </div>
   );
@@ -375,6 +325,8 @@ function StoredToolCallsMessage({ parts, storedToolCalls }) {
             method: tc.result.method || 'GET',
             url: tc.result.url,
             tool_name: tc.result.tool_name || tc.tool_name,
+            tool_id: tc.result.tool_id,
+            source_id: tc.result.source_id,
             duration_ms: tc.result.duration_ms,
           }
         } : null;
@@ -386,13 +338,15 @@ function StoredToolCallsMessage({ parts, storedToolCalls }) {
             input={tc.arguments}
             output={output}
             state={output ? "output-available" : "completed"}
+            toolId={tc.result?.tool_id}
+            sourceId={tc.result?.source_id}
           />
         );
       })}
       {/* Show text content if it's not just our auto-generated summary */}
       {textContent && !isAutoSummary && (
         <div className="prose prose-invert prose-sm max-w-none">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{textContent}</ReactMarkdown>
         </div>
       )}
       {/* Show hint for historical tool results */}
@@ -424,7 +378,7 @@ function AssistantPart({ part, onApprove, onReject }) {
         prose-strong:text-white prose-strong:font-semibold
         prose-blockquote:border-l-2 prose-blockquote:border-white/20 prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-white/60
       ">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{part.text}</ReactMarkdown>
       </div>
     );
   }

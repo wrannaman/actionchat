@@ -223,16 +223,16 @@ function HomeContent() {
             </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-6 leading-[1.1]">
-              The Last Internal Tool<br />
-              <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">You'll Ever Build.</em>
+              Stop Building<br />
+              <em className="not-italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">Internal Tools.</em>
             </h1>
 
             <p className="text-xl text-white/60 mb-4 max-w-2xl mx-auto">
-              Stop building admin dashboards. Connect your APIs and let your team chat with them—refunds, user migrations, billing fixes, all without engineering tickets.
+              Your APIs already do everything. Just talk to them. Refunds, user migrations, billing fixes—all without engineering tickets or new dashboards.
             </p>
 
             <p className="text-lg text-white/40 mb-8 max-w-xl mx-auto">
-              Self-host in 2 minutes. Works with any OpenAPI spec or MCP server. Your auth, your data, your infrastructure.
+              Connect any OpenAPI spec. Self-host in 2 minutes. Your auth, your data, your infrastructure.
             </p>
           </div>
         </section>
@@ -378,10 +378,10 @@ function HomeContent() {
         <section className="container mx-auto px-6 py-20 border-t border-white/5">
           <div className="max-w-2xl mx-auto text-center">
             <h2 className="text-2xl md:text-3xl font-black mb-4">
-              Ship your internal tooling backlog today.
+              Delete your internal tooling backlog.
             </h2>
             <p className="text-white/50 mb-8">
-              Self-host free forever. Your support team will thank you.
+              Self-host free forever. No code required. Your support team will thank you.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/auth/login">

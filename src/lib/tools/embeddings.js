@@ -62,7 +62,7 @@ export async function embedQuery(query) {
  * @param {string[]} sourceIds - Source UUIDs to search within
  * @param {string} query - User's natural language query
  * @param {number} limit - Max tools to return (default 64)
- * @returns {Promise<string[]>} - Array of matching tool IDs
+ * @returns {Promise<Array<{tool_id: string, similarity: number}>>} - Array of matches with similarity scores
  */
 export async function searchTools(supabase, sourceIds, query, limit = 64) {
   const embedding = await embedQuery(query);
@@ -84,7 +84,7 @@ export async function searchTools(supabase, sourceIds, query, limit = 64) {
     return [];
   }
 
-  return matches?.map(m => m.tool_id) || [];
+  return matches || [];
 }
 
 /**
@@ -126,7 +126,7 @@ export async function getEmbeddingCoverage(supabase, sourceIds) {
  * @param {string[]} templateIds - Template UUIDs to search within
  * @param {string} query - User's natural language query
  * @param {number} limit - Max tools to return (default 64)
- * @returns {Promise<string[]>} - Array of matching tool IDs
+ * @returns {Promise<Array<{tool_id: string, similarity: number}>>} - Array of matches with similarity scores
  */
 export async function searchTemplateTools(supabase, templateIds, query, limit = 64) {
   const embedding = await embedQuery(query);
@@ -147,7 +147,7 @@ export async function searchTemplateTools(supabase, templateIds, query, limit = 
     return [];
   }
 
-  return matches?.map(m => m.tool_id) || [];
+  return matches || [];
 }
 
 /**

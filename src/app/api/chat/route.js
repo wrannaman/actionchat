@@ -165,13 +165,24 @@ export async function POST(request) {
     // 6. LOAD TOOLS (optionally filtered by enabled sources, with semantic search)
     // ─────────────────────────────────────────────────────────────────────────
     // Extract last user message for semantic tool search
-    const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || '';
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+    let lastUserMessage = '';
+    if (lastUserMsg) {
+      // Handle both UI message format (parts array) and simple content string
+      if (lastUserMsg.parts?.length) {
+        const textPart = lastUserMsg.parts.find(p => p.type === 'text');
+        lastUserMessage = textPart?.text || '';
+      } else if (typeof lastUserMsg.content === 'string') {
+        lastUserMessage = lastUserMsg.content;
+      }
+    }
+    console.log('[CHAT] User query for tool search:', lastUserMessage?.slice(0, 100) || '(empty)');
 
-    const { tools, toolRows, sourceIds, sourcesWithHints, toolsWarning } = await loadAgentTools(
+    const { tools, toolRows, sourceIds, sourcesWithHints, toolsWarning, matchedRoutine } = await loadAgentTools(
       supabase,
       agentId,
       user.id,
-      { enabledSourceIds, userQuery: lastUserMessage }
+      { enabledSourceIds, userQuery: lastUserMessage, orgId }
     );
 
     if (toolsWarning) {
@@ -243,6 +254,26 @@ export async function POST(request) {
           usage: event.usage,
           agent,
         });
+
+        // Track routine success if one was used
+        // A routine is successful if:
+        // 1. It was matched and used
+        // 2. Tool calls were executed (steps > 0)
+        // 3. The conversation finished normally (not aborted)
+        if (matchedRoutine?.id && event.finishReason !== 'error') {
+          const hasToolCalls = event.steps?.some(s => s.toolCalls?.length > 0);
+          if (hasToolCalls) {
+            console.log('[CHAT] Incrementing success_count for routine:', matchedRoutine.name);
+            // Use atomic increment to avoid race conditions
+            const { error: incError } = await supabase.rpc('increment_routine_feedback', {
+              p_routine_id: matchedRoutine.id,
+              p_is_success: true,
+            });
+            if (incError) {
+              console.error('[CHAT] Failed to increment routine success:', incError);
+            }
+          }
+        }
       },
     });
 
@@ -252,6 +283,12 @@ export async function POST(request) {
     const responseHeaders = { 'X-Chat-Id': chatId || '' };
     if (toolsWarning) {
       responseHeaders['X-Tools-Warning'] = toolsWarning;
+    }
+    // Include routine info so UI can display it and provide feedback
+    if (matchedRoutine?.id) {
+      responseHeaders['X-Routine-Id'] = matchedRoutine.id;
+      responseHeaders['X-Routine-Name'] = matchedRoutine.name;
+      responseHeaders['X-Routine-Confidence'] = String((matchedRoutine.confidence * 100).toFixed(0));
     }
 
     return toStreamResponse(result, {

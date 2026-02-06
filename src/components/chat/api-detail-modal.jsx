@@ -31,6 +31,8 @@ export function ApiDetailModal({
   onToggleEnabled,
   enabledCount = 1, // How many APIs are currently enabled (for warning)
 }) {
+  // Template-based sources don't need sync - tools come from platform-level template_tools
+  const isTemplateBased = !!source?.template_id;
   const hasCredentials = credentialInfo?.has;
   const isLastEnabled = isEnabled && enabledCount === 1;
   const [tools, setTools] = useState([]);
@@ -271,7 +273,8 @@ export function ApiDetailModal({
             {tools.length} {isMcp ? "tool" : "endpoint"}{tools.length === 1 ? "" : "s"} available
           </span>
           <div className="flex gap-2">
-            {!isMcp && (
+            {/* Only show sync for custom (non-template) OpenAPI sources */}
+            {!isMcp && !isTemplateBased && (
               <Button
                 variant="ghost"
                 size="sm"

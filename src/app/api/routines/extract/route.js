@@ -80,6 +80,9 @@ export async function POST(request) {
     // Format chat history for extraction
     const chatHistory = formatChatForExtraction(messages);
 
+    // Extract tool chain (ordered list of tool_ids and names)
+    const toolChain = extractToolChain(messages);
+
     // Use LLM to extract the routine
     const extraction = await extractRoutineWithLLM(chatHistory, orgSettings);
 
@@ -90,6 +93,8 @@ export async function POST(request) {
         parameters: extraction.parameters,
         description: extraction.description,
         suggestedName: extraction.suggestedName,
+        toolChain: toolChain.ids,
+        toolChainNames: toolChain.names,
       },
     });
 
@@ -100,6 +105,35 @@ export async function POST(request) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Extract the tool chain (ordered tool_ids and names) from chat messages.
+ */
+function extractToolChain(messages) {
+  const ids = [];
+  const names = [];
+  const seen = new Set(); // Dedupe tools used multiple times
+
+  for (const msg of messages) {
+    if (msg.tool_calls?.length > 0) {
+      for (const tc of msg.tool_calls) {
+        // Use tool_id if available, otherwise try to get from result
+        const toolId = tc.result?.tool_id || tc.tool_id;
+        const toolName = tc.tool_name;
+
+        // Only add unique tools (preserve order of first occurrence)
+        const key = toolId || toolName;
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          if (toolId) ids.push(toolId);
+          if (toolName) names.push(toolName);
+        }
+      }
+    }
+  }
+
+  return { ids, names };
 }
 
 /**

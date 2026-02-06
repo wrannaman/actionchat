@@ -293,6 +293,36 @@ function formatNestedValue(key, value, item) {
   return null;
 }
 
+// Clickable table cell that copies value on click
+function CopyableCell({ value, children, className = "" }) {
+  const handleCopy = async (e) => {
+    e.stopPropagation();
+    // Convert value to string for copying
+    let copyText;
+    if (value === null || value === undefined) {
+      copyText = "";
+    } else if (typeof value === "object") {
+      copyText = JSON.stringify(value);
+    } else {
+      copyText = String(value);
+    }
+    if (copyText) {
+      await navigator.clipboard.writeText(copyText);
+      toast.success("Copied!");
+    }
+  };
+
+  return (
+    <td
+      onClick={handleCopy}
+      className={`py-2 px-3 max-w-[200px] truncate cursor-pointer hover:bg-white/5 transition-colors ${className}`}
+      title="Click to copy"
+    >
+      {children}
+    </td>
+  );
+}
+
 // Data table for arrays of objects
 function DataTable({ data, maxRows = 8 }) {
   const [expanded, setExpanded] = useState(false);
@@ -329,12 +359,12 @@ function DataTable({ data, maxRows = 8 }) {
         </thead>
         <tbody>
           {displayData.map((item, i) => (
-            <tr key={i} className="border-b border-white/5 last:border-0 hover:bg-white/[0.02]">
+            <tr key={i} className="border-b border-white/5 last:border-0">
               {sortedKeys.map(key => {
                 const value = item?.[key];
                 const formatted = formatNestedValue(key, value, item);
                 return (
-                  <td key={key} className="py-2 px-3 max-w-[200px] truncate">
+                  <CopyableCell key={key} value={value}>
                     {formatted !== null ? (
                       <span className={key === "amount" ? "text-green-400 font-medium" : "text-white/70"}>
                         {formatted}
@@ -342,7 +372,7 @@ function DataTable({ data, maxRows = 8 }) {
                     ) : (
                       <SmartValue keyName={key} value={value} />
                     )}
-                  </td>
+                  </CopyableCell>
                 );
               })}
             </tr>

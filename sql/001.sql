@@ -100,6 +100,7 @@ CREATE TABLE source_templates (
 
   -- Metadata
   is_featured BOOLEAN DEFAULT false,
+  is_synced BOOLEAN DEFAULT false,    -- true = template_tools populated (MCP: always true, OpenAPI: after sync)
   install_count INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
@@ -304,6 +305,14 @@ CREATE TABLE routines (
   last_used_at TIMESTAMPTZ,
   parameters JSONB NOT NULL DEFAULT '{}',   -- extracted variables (e.g. { "email": { "type": "string", "required": true } })
   source_chat_id UUID REFERENCES chats(id) ON DELETE SET NULL, -- original chat this was recorded from
+  -- Tool chain: ordered list of tool IDs that make up this routine
+  tool_chain UUID[] NOT NULL DEFAULT '{}',
+  tool_chain_names TEXT[] NOT NULL DEFAULT '{}',  -- human-readable names for display
+  -- Confidence tracking: Bayesian scoring = (success+1)/(total+2)
+  success_count INTEGER NOT NULL DEFAULT 0,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  -- Embedding for semantic matching of user queries to routines
+  embedding_1536 extensions.vector(1536),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -311,7 +320,40 @@ CREATE TRIGGER trg_routines BEFORE UPDATE ON routines FOR EACH ROW EXECUTE FUNCT
 CREATE INDEX idx_routines_org ON routines(org_id);
 CREATE INDEX idx_routines_user ON routines(created_by);
 CREATE INDEX idx_routines_source_chat ON routines(source_chat_id);
+CREATE INDEX idx_routines_embedding ON routines USING hnsw (embedding_1536 extensions.vector_cosine_ops);
 COMMENT ON TABLE routines IS 'Recorded multi-step workflows. LLM extracts pattern from chat history, identifies variables.';
+
+-- Search routines by semantic similarity
+CREATE OR REPLACE FUNCTION search_routines_semantic_1536(
+  p_org_id UUID,
+  p_embedding extensions.vector(1536),
+  p_limit INT DEFAULT 3
+)
+RETURNS TABLE (routine_id UUID, similarity FLOAT)
+LANGUAGE sql STABLE AS $$
+  SELECT r.id, 1 - (r.embedding_1536 <=> p_embedding) AS similarity
+  FROM routines r
+  WHERE r.org_id = p_org_id
+    AND r.embedding_1536 IS NOT NULL
+  ORDER BY r.embedding_1536 <=> p_embedding
+  LIMIT p_limit;
+$$;
+
+-- Atomically increment routine feedback counters (avoids race conditions)
+CREATE OR REPLACE FUNCTION increment_routine_feedback(
+  p_routine_id UUID,
+  p_is_success BOOLEAN
+)
+RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF p_is_success THEN
+    UPDATE routines SET success_count = success_count + 1 WHERE id = p_routine_id;
+  ELSE
+    UPDATE routines SET failure_count = failure_count + 1 WHERE id = p_routine_id;
+  END IF;
+END;
+$$;
 
 -- ============================================================================
 -- 12. CHATS — conversation sessions
