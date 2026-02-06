@@ -31,20 +31,46 @@ export async function GET() {
     // Get sources with tool counts
     const { data: sources, error } = await supabase
       .from('api_sources')
-      .select('id, name, description, source_type, base_url, spec_url, auth_type, is_active, last_synced_at, created_at, updated_at')
+      .select('id, name, description, source_type, base_url, spec_url, auth_type, is_active, last_synced_at, created_at, updated_at, template_id')
       .eq('org_id', orgId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Get tool counts per source
-    const sourceIds = sources.map(s => s.id);
+    // Split into template vs custom sources for tool counting
+    const templateSources = sources.filter(s => s.template_id);
+    const customSources = sources.filter(s => !s.template_id);
+
     let toolCounts = {};
-    if (sourceIds.length > 0) {
+
+    // Count tools from template_tools for template sources
+    const templateIds = [...new Set(templateSources.map(s => s.template_id))];
+    if (templateIds.length > 0) {
+      const { data: templateTools, error: ttError } = await supabase
+        .from('template_tools')
+        .select('template_id')
+        .in('template_id', templateIds)
+        .eq('is_active', true);
+
+      if (!ttError && templateTools) {
+        const templateToolCounts = {};
+        for (const t of templateTools) {
+          templateToolCounts[t.template_id] = (templateToolCounts[t.template_id] || 0) + 1;
+        }
+        // Map template counts back to source IDs
+        for (const s of templateSources) {
+          toolCounts[s.id] = templateToolCounts[s.template_id] || 0;
+        }
+      }
+    }
+
+    // Count tools from tools table for custom sources
+    const customSourceIds = customSources.map(s => s.id);
+    if (customSourceIds.length > 0) {
       const { data: tools, error: toolsError } = await supabase
         .from('tools')
         .select('source_id')
-        .in('source_id', sourceIds)
+        .in('source_id', customSourceIds)
         .eq('is_active', true);
 
       if (!toolsError && tools) {
