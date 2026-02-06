@@ -36,7 +36,9 @@ import {
   ExternalLink,
   Edit,
   Plus,
+  Key,
 } from "lucide-react";
+import { CredentialModal } from "@/components/chat/credential-modal";
 import {
   Select,
   SelectContent,
@@ -307,7 +309,10 @@ function SourceDetailContent({ params }) {
     }
   };
 
+  const [credentialModalOpen, setCredentialModalOpen] = useState(false);
+
   const isManual = source?.source_type === "manual";
+  const isTemplate = !!source?.template_id;
 
   const activeTools = tools.filter((t) => t.is_active);
   const inactiveTools = tools.filter((t) => !t.is_active);
@@ -332,9 +337,71 @@ function SourceDetailContent({ params }) {
             <div className="text-center py-16">
               <p className="text-white/40">Source not found</p>
             </div>
+          ) : isTemplate ? (
+            <>
+              {/* Template Source — simplified view */}
+              <div className="mb-8">
+                <Link
+                  href="/settings/sources"
+                  className="flex items-center gap-1 text-sm text-white/40 hover:text-white mb-4 transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to Settings
+                </Link>
+
+                <h1 className="text-3xl font-black mb-2">{source.name}</h1>
+                {source.description && (
+                  <p className="text-white/40 mb-3">{source.description}</p>
+                )}
+                <div className="flex items-center gap-4 text-sm text-white/30 flex-wrap">
+                  {source.base_url && (
+                    <span className="flex items-center gap-1">
+                      <Globe className="h-3.5 w-3.5" />
+                      {source.base_url}
+                    </span>
+                  )}
+                  <Badge variant="outline" className="border-white/10 text-white/40">
+                    {source.auth_type}
+                  </Badge>
+                  <Badge variant="outline" className="border-cyan-500/30 text-cyan-400 text-xs">
+                    <Wrench className="h-3 w-3 mr-1" />
+                    {tools.length} endpoints
+                  </Badge>
+                  <span className="text-xs text-white/20">Managed by platform</span>
+                </div>
+              </div>
+
+              {/* Credential Management Card */}
+              <Card className="bg-white/5 border-white/10">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="h-5 w-5" />
+                    API Credentials
+                  </CardTitle>
+                  <CardDescription className="text-white/40">
+                    Manage your API keys for {source.name}. Endpoints are maintained by the platform.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    onClick={() => setCredentialModalOpen(true)}
+                    className="bg-blue-500 hover:bg-blue-400 text-white font-bold"
+                  >
+                    <Key className="h-4 w-4 mr-2" />
+                    Manage API Keys
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <CredentialModal
+                open={credentialModalOpen}
+                onOpenChange={setCredentialModalOpen}
+                source={source}
+              />
+            </>
           ) : (
             <>
-              {/* Header */}
+              {/* Custom Source — full edit view */}
               <div className="mb-8">
                 <Link
                   href="/sources"
